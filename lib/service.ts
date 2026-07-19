@@ -55,12 +55,29 @@ export async function adaptReel(reelId: number): Promise<Reel> {
     ? (result.red_line_flag as RedLineFlag)
     : "needs_review";
 
+  // Safety check: ensure flag consistency with edits made (§11 fix).
+  // If the model made edits but reported flag=none, override to needs_review.
+  // This prevents under-flagging where the model fixes a violation but claims
+  // no red line was found.
+  let finalFlag = flag;
+  let finalReason = result.red_line_reason || null;
+  if (
+    finalFlag === "none" &&
+    result.edits_made.length > 0 &&
+    result.adapted_script !== reel.transcript
+  ) {
+    finalFlag = "needs_review";
+    finalReason =
+      "Adaptation made edits but initially reported no flag. " +
+      `Edits: ${result.edits_made.join("; ")}`;
+  }
+
   setAdaptation(
     reelId,
     result.analysis,
     result.adapted_script,
-    flag,
-    result.red_line_reason || null
+    finalFlag,
+    finalReason
   );
   return getReel(reelId)!;
 }

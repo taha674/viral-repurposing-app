@@ -56,10 +56,28 @@ CRITICAL rules for the edit:
   non-compliant line, or soften an over-promise — rather than reworking whole
   sections.
 - Preserve the length, pacing, and beat structure of the original.
+- **CRITICAL: Do not replace a red-line violation with a vaguer version of the
+  same violation.** Example: "Always say three left" (fake scarcity) should
+  become "Get started now" (no scarcity claim), NOT "Always say limited spots
+  left" (still fake scarcity, just vaguer). If you cannot fix a violation with
+  a genuinely compliant phrase, flag it instead of forcing a pseudo-fix.
 
 ## Red lines (the ONLY thing you edit for)
 
 ${redLines}
+
+## Flag rules — CRITICAL for compliance
+
+The red_line_flag MUST reflect your actual edits. This is non-negotiable:
+- If you make ANY edits to the adapted_script for compliance reasons (because
+  you detected and fixed a red-line violation), you MUST set the flag to at
+  least "needs_review". Never report "none" if you edited something.
+- "none" means: the source was already compliant, NO edits were needed.
+- "needs_review" means: you made edits and the human should verify your judgment
+  (a borderline claim, an ambiguous reframe, or uncertainty about whether the
+  fix is truly compliant).
+- "rejected" means: you could not fix the violation without abandoning the
+  core premise, or the source is fundamentally non-compliant.
 
 ## When the source can't be salvaged with minimal edits — FLAG, don't force
 
@@ -70,13 +88,6 @@ invent a new script to force compliance. Instead:
 - Still return your best minimal-edit attempt in adapted_script IF a salvage is
   plausible, otherwise return the original transcript unchanged in
   adapted_script and make clear in red_line_reason that a human must decide.
-
-Set red_line_flag to:
-- "none": source was already compliant, or became compliant with trivial edits.
-- "needs_review": you made edits but a human should confirm a judgment call
-  (borderline claim, ambiguous framing).
-- "rejected": the source's core premise violates a red line and can't be
-  repurposed with minimal edits — human decides whether to skip it.
 
 ## Also produce a structural breakdown (analysis) of the SOURCE
 
