@@ -6,6 +6,10 @@
 //   - Full combined red-line list (PRD §8 halal filter + Taha's 3 additions).
 //   - Flag rather than force when the source can't be made compliant.
 
+import { getSetting, setSetting, deleteSetting } from "./settings";
+
+const SYSTEM_PROMPT_SETTING_KEY = "adaptation_system_prompt";
+
 export const RED_LINES: string[] = [
   // From PRD §8 (halal filter)
   "No debt or leverage advice.",
@@ -104,6 +108,45 @@ fences, no commentary before or after.`;
 
 export function buildUserMessage(transcript: string): string {
   return `Here is the transcript of the viral reel to adapt:\n\n"""\n${transcript.trim()}\n"""\n\nApply minimal red-line-compliance editing and return the structured JSON result.`;
+}
+
+// --- User-editable system prompt (persisted override, code is the default) ---
+//
+// The operator can tune the adaptation system prompt from the UI (Settings
+// page) without a code change. A saved override lives in the `settings`
+// table; absence of one means "use buildSystemPrompt() as-is". Resetting
+// deletes the override, so a later code change to buildSystemPrompt()
+// automatically becomes the new default again.
+
+// The as-shipped prompt, ignoring any operator override. Used as the "Reset
+// to default" target and to show the operator what the baseline looks like.
+export function getDefaultSystemPrompt(): string {
+  return buildSystemPrompt();
+}
+
+// What actually gets sent to Gemini: the operator's saved override if present
+// and non-empty, otherwise the code default.
+export function getEffectiveSystemPrompt(): string {
+  const override = getSetting(SYSTEM_PROMPT_SETTING_KEY);
+  return override?.trim() ? override : buildSystemPrompt();
+}
+
+export function isSystemPromptCustomized(): boolean {
+  return !!getSetting(SYSTEM_PROMPT_SETTING_KEY)?.trim();
+}
+
+export function setCustomSystemPrompt(prompt: string): void {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    throw new Error(
+      "System prompt cannot be empty — use Reset to restore the default instead."
+    );
+  }
+  setSetting(SYSTEM_PROMPT_SETTING_KEY, trimmed);
+}
+
+export function resetSystemPrompt(): void {
+  deleteSetting(SYSTEM_PROMPT_SETTING_KEY);
 }
 
 // JSON schema for Gemini structured output (config.responseJsonSchema, paired

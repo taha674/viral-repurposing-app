@@ -20,6 +20,7 @@ export default function RootLayout({
           <nav>
             <Link href="/">Review Queue</Link>
             <Link href="/accounts">Tracked Accounts</Link>
+            <Link href="/settings">Settings</Link>
           </nav>
         </header>
         <main className="container">{children}</main>

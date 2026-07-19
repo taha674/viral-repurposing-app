@@ -1,7 +1,7 @@
 import { GoogleGenAI, type GenerateContentResponse } from "@google/genai";
 import { config, hasGemini } from "./config";
 import {
-  buildSystemPrompt,
+  getEffectiveSystemPrompt,
   buildUserMessage,
   ADAPTATION_SCHEMA,
   type AdaptationResult,
@@ -88,7 +88,7 @@ export async function runAdaptation(
         model: config.geminiModel,
         contents: buildUserMessage(transcript),
         config: {
-          systemInstruction: buildSystemPrompt(),
+          systemInstruction: getEffectiveSystemPrompt(),
           maxOutputTokens: config.adaptMaxOutputTokens,
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: "application/json",

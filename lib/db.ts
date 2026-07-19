@@ -76,6 +76,14 @@ export function getDb(): Database.Database {
       reels_found INTEGER NOT NULL DEFAULT 0
     );
 
+    -- Simple key/value store for user-editable settings (e.g. a custom
+    -- adaptation system prompt). Absence of a key means "use the code default".
+    CREATE TABLE IF NOT EXISTS settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_reels_status ON reels(status);
     CREATE INDEX IF NOT EXISTS idx_reels_account ON reels(account_id);
   `);
