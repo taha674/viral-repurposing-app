@@ -1,0 +1,18 @@
+name: Weekly scan
+
+on:
+  schedule:
+    # 11:00 UTC Monday = 6am EST (drifts to 5am ET during EDT — Railway/GitHub
+    # Actions cron doesn't auto-adjust for daylight saving).
+    - cron: "0 11 * * 1"
+  workflow_dispatch: {} # lets you trigger it manually from the Actions tab to test
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scan
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://viral-repurposing-app-production.up.railway.app/api/cron/scan
