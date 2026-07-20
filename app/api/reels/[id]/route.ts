@@ -15,7 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const reel = getReel(Number(id));
+  const reel = await getReel(Number(id));
   if (!reel) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ reel, analysis: parseAnalysis(reel) });
 }
@@ -27,13 +27,13 @@ export async function PATCH(
 ) {
   const { id } = await params;
   const reelId = Number(id);
-  if (!getReel(reelId)) {
+  if (!(await getReel(reelId))) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
   const body = await request.json();
 
   if (body.transcript !== undefined || body.adapted_script !== undefined) {
-    updateEditable(reelId, {
+    await updateEditable(reelId, {
       transcript: body.transcript,
       adapted_script: body.adapted_script,
     });
@@ -43,8 +43,8 @@ export async function PATCH(
     if (!ALLOWED_STATUSES.includes(body.status)) {
       return NextResponse.json({ error: "invalid status" }, { status: 400 });
     }
-    setStatus(reelId, body.status);
+    await setStatus(reelId, body.status);
   }
 
-  return NextResponse.json({ reel: getReel(reelId) });
+  return NextResponse.json({ reel: await getReel(reelId) });
 }

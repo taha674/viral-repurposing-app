@@ -126,27 +126,28 @@ export function getDefaultSystemPrompt(): string {
 
 // What actually gets sent to Gemini: the operator's saved override if present
 // and non-empty, otherwise the code default.
-export function getEffectiveSystemPrompt(): string {
-  const override = getSetting(SYSTEM_PROMPT_SETTING_KEY);
+export async function getEffectiveSystemPrompt(): Promise<string> {
+  const override = await getSetting(SYSTEM_PROMPT_SETTING_KEY);
   return override?.trim() ? override : buildSystemPrompt();
 }
 
-export function isSystemPromptCustomized(): boolean {
-  return !!getSetting(SYSTEM_PROMPT_SETTING_KEY)?.trim();
+export async function isSystemPromptCustomized(): Promise<boolean> {
+  const override = await getSetting(SYSTEM_PROMPT_SETTING_KEY);
+  return !!override?.trim();
 }
 
-export function setCustomSystemPrompt(prompt: string): void {
+export async function setCustomSystemPrompt(prompt: string): Promise<void> {
   const trimmed = prompt.trim();
   if (!trimmed) {
     throw new Error(
       "System prompt cannot be empty — use Reset to restore the default instead."
     );
   }
-  setSetting(SYSTEM_PROMPT_SETTING_KEY, trimmed);
+  await setSetting(SYSTEM_PROMPT_SETTING_KEY, trimmed);
 }
 
-export function resetSystemPrompt(): void {
-  deleteSetting(SYSTEM_PROMPT_SETTING_KEY);
+export async function resetSystemPrompt(): Promise<void> {
+  await deleteSetting(SYSTEM_PROMPT_SETTING_KEY);
 }
 
 // JSON schema for Gemini structured output (config.responseJsonSchema, paired

@@ -426,13 +426,23 @@ function ReelDetail({ id, onChange }: { id: number; onChange: () => void }) {
                   ` — ${reel.voiceover_error}`}
               </p>
               {reel.voiceover_status === "success" && (
-                <button
-                  className="secondary"
-                  onClick={revealVoiceover}
-                  disabled={busy === "reveal"}
-                >
-                  {busy === "reveal" ? "Opening…" : "Reveal in Finder"}
-                </button>
+                <>
+                  <a
+                    className="secondary button-like"
+                    href={`/api/reels/${id}/voiceover/download`}
+                    download
+                  >
+                    Download
+                  </a>
+                  <button
+                    className="secondary"
+                    onClick={revealVoiceover}
+                    disabled={busy === "reveal"}
+                    title="Local machine only — opens Finder where the app server is running."
+                  >
+                    {busy === "reveal" ? "Opening…" : "Reveal in Finder"}
+                  </button>
+                </>
               )}
             </div>
           )}

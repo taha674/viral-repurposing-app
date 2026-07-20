@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 import { config } from "./config";
-import { getDb } from "./db";
+import { getPool } from "./db";
 import { listAccounts, markScanned } from "./accounts";
 import {
   insertReel,
@@ -24,24 +24,24 @@ import type { Reel, RedLineFlag } from "./types";
 // The Apify client already hard-caps retries; here we just translate a failed
 // pull into a flagged status rather than looping. Fail loud, never silently.
 export async function retrieveTranscript(reelId: number): Promise<Reel> {
-  const reel = getReel(reelId);
+  const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
   try {
     const scraped = await fetchReel(reel.url);
     if (scraped?.transcript) {
-      setTranscript(reelId, scraped.transcript, "success");
+      await setTranscript(reelId, scraped.transcript, "success");
     } else {
-      setTranscript(reelId, reel.transcript, "failed");
+      await setTranscript(reelId, reel.transcript, "failed");
     }
   } catch {
-    setTranscript(reelId, reel.transcript, "failed");
+    await setTranscript(reelId, reel.transcript, "failed");
   }
-  return getReel(reelId)!;
+  return (await getReel(reelId))!;
 }
 
 // --- Red-line-compliance adaptation (manually triggered) ---
 export async function adaptReel(reelId: number): Promise<Reel> {
-  const reel = getReel(reelId);
+  const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
   if (!reel.transcript?.trim()) {
     throw new Error(
@@ -72,14 +72,14 @@ export async function adaptReel(reelId: number): Promise<Reel> {
       `Edits: ${result.edits_made.join("; ")}`;
   }
 
-  setAdaptation(
+  await setAdaptation(
     reelId,
     result.analysis,
     result.adapted_script,
     finalFlag,
     finalReason
   );
-  return getReel(reelId)!;
+  return (await getReel(reelId))!;
 }
 
 // --- ElevenLabs voiceover generation (manually triggered, approved scripts only) ---
@@ -88,7 +88,7 @@ export async function adaptReel(reelId: number): Promise<Reel> {
 // loop silently against a paid API (ELEVENLABS_MAX_RETRIES is the hard cap,
 // enforced inside elevenlabs.ts).
 export async function generateVoiceover(reelId: number): Promise<Reel> {
-  const reel = getReel(reelId);
+  const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
   if (reel.status !== "approved") {
     throw new Error("Approve the script before generating a voiceover.");
@@ -100,7 +100,7 @@ export async function generateVoiceover(reelId: number): Promise<Reel> {
 
   if (script.length > config.voiceoverMaxChars) {
     const message = `Script is ${script.length} characters, over the VOICEOVER_MAX_CHARS cap of ${config.voiceoverMaxChars}. Generation blocked to avoid runaway spend.`;
-    setVoiceover(reelId, "failed", null, message);
+    await setVoiceover(reelId, "failed", null, message);
     throw new Error(message);
   }
 
@@ -111,19 +111,19 @@ export async function generateVoiceover(reelId: number): Promise<Reel> {
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, "voiceover.mp3");
     fs.writeFileSync(filePath, audio);
-    setVoiceover(reelId, "success", filePath, null);
+    await setVoiceover(reelId, "success", filePath, null);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    setVoiceover(reelId, "failed", null, message);
+    await setVoiceover(reelId, "failed", null, message);
     throw err;
   }
 
-  return getReel(reelId)!;
+  return (await getReel(reelId))!;
 }
 
 // --- Reveal the generated voiceover in Finder (local machine only) ---
 export async function revealVoiceover(reelId: number): Promise<void> {
-  const reel = getReel(reelId);
+  const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
   if (reel.voiceover_status !== "success" || !reel.voiceover_path) {
     throw new Error("No voiceover file to reveal yet — generate one first.");
@@ -184,7 +184,7 @@ export async function addManualReel(
   }
 
   // insertReel dedupes on shortcode and returns the existing row if present.
-  const reel = insertReel({
+  const reel = await insertReel({
     url,
     shortcode: scraped?.shortcode ?? shortcode,
     views,
@@ -209,12 +209,21 @@ export interface ScanSummary {
 }
 
 export async function runScan(): Promise<ScanSummary> {
-  const db = getDb();
-  const accounts = listAccounts().filter((a) => a.active === 1);
-  const logInsert = db.prepare(
-    `INSERT INTO scan_logs (account_id, handle, status, message, reels_found)
-     VALUES (?, ?, ?, ?, ?)`
-  );
+  const pool = await getPool();
+  const logScan = (
+    accountId: number,
+    handle: string,
+    status: string,
+    message: string,
+    reelsFound: number
+  ) =>
+    pool.query(
+      `INSERT INTO scan_logs (account_id, handle, status, message, reels_found)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [accountId, handle, status, message, reelsFound]
+    );
+
+  const accounts = (await listAccounts()).filter((a) => a.active === 1);
 
   let newReels = 0;
   let errors = 0;
@@ -229,7 +238,7 @@ export async function runScan(): Promise<ScanSummary> {
 
       let foundForAccount = 0;
       for (const r of qualifying) {
-        const reel = insertReel({
+        const reel = await insertReel({
           account_id: account.id,
           url: r.url,
           shortcode: r.shortcode,
@@ -244,9 +253,9 @@ export async function runScan(): Promise<ScanSummary> {
         }
       }
 
-      markScanned(account.id, foundForAccount);
+      await markScanned(account.id, foundForAccount);
       newReels += foundForAccount;
-      logInsert.run(
+      await logScan(
         account.id,
         account.handle,
         "ok",
@@ -256,7 +265,7 @@ export async function runScan(): Promise<ScanSummary> {
     } catch (err) {
       errors += 1;
       const message = err instanceof Error ? err.message : String(err);
-      logInsert.run(account.id, account.handle, "error", message, 0);
+      await logScan(account.id, account.handle, "error", message, 0);
     }
   }
 

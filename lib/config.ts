@@ -12,6 +12,14 @@ function intEnv(name: string, fallback: number): number {
 }
 
 export const config = {
+  // Single shared password gating the whole app (Railway deploy only —
+  // local dev has no gate unless this is set).
+  appPassword: process.env.APP_PASSWORD ?? "",
+
+  // Bearer secret for the scheduled-scan cron endpoint (separate from
+  // APP_PASSWORD since the cron caller isn't a browser session).
+  cronSecret: process.env.CRON_SECRET ?? "",
+
   // Apify
   apifyToken: process.env.APIFY_TOKEN ?? "",
   apifyActor: process.env.APIFY_INSTAGRAM_ACTOR ?? "apify/instagram-reel-scraper",
@@ -59,6 +67,14 @@ export const config = {
   // oversized script. ~90s of narration has real headroom under this.
   voiceoverMaxChars: intEnv("VOICEOVER_MAX_CHARS", 6_000),
 } as const;
+
+export function hasAppPassword(): boolean {
+  return config.appPassword.trim().length > 0;
+}
+
+export function hasCronSecret(): boolean {
+  return config.cronSecret.trim().length > 0;
+}
 
 export function hasApify(): boolean {
   return config.apifyToken.trim().length > 0;

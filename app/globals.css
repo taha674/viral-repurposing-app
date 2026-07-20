@@ -132,6 +132,17 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+a.button-like {
+  display: inline-block;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
 
 .table-wrap {
   overflow-x: auto;

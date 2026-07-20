@@ -80,6 +80,7 @@ export async function runAdaptation(
 
   const ai = new GoogleGenAI({ apiKey: config.geminiKey });
   const attempts = Math.max(1, config.geminiMaxRetries + 1);
+  const systemInstruction = await getEffectiveSystemPrompt();
   let lastError: unknown;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -88,7 +89,7 @@ export async function runAdaptation(
         model: config.geminiModel,
         contents: buildUserMessage(transcript),
         config: {
-          systemInstruction: getEffectiveSystemPrompt(),
+          systemInstruction,
           maxOutputTokens: config.adaptMaxOutputTokens,
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: "application/json",

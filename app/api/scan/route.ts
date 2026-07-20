@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 import { runScan } from "@/lib/service";
-import { getDb } from "@/lib/db";
-import type { ScanLog } from "@/lib/types";
+import { listScanLogs } from "@/lib/scanLogs";
 
 // Recent scan logs (visible in the app per PRD §5.2).
 export async function GET() {
-  const logs = getDb()
-    .prepare("SELECT * FROM scan_logs ORDER BY run_at DESC LIMIT 100")
-    .all() as ScanLog[];
+  const logs = await listScanLogs(100);
   return NextResponse.json({ logs });
 }
 

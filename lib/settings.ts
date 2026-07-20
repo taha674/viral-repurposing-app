@@ -1,23 +1,26 @@
-import { getDb } from "./db";
+import { getPool } from "./db";
 
 // Generic key/value settings store. Absence of a key means "use the code
 // default" — callers decide what that default is.
-export function getSetting(key: string): string | undefined {
-  const row = getDb()
-    .prepare("SELECT value FROM settings WHERE key = ?")
-    .get(key) as { value: string } | undefined;
-  return row?.value;
+export async function getSetting(key: string): Promise<string | undefined> {
+  const pool = await getPool();
+  const { rows } = await pool.query<{ value: string }>(
+    "SELECT value FROM settings WHERE key = $1",
+    [key]
+  );
+  return rows[0]?.value;
 }
 
-export function setSetting(key: string, value: string): void {
-  getDb()
-    .prepare(
-      `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    )
-    .run(key, value);
+export async function setSetting(key: string, value: string): Promise<void> {
+  const pool = await getPool();
+  await pool.query(
+    `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, now())
+     ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [key, value]
+  );
 }
 
-export function deleteSetting(key: string): void {
-  getDb().prepare("DELETE FROM settings WHERE key = ?").run(key);
+export async function deleteSetting(key: string): Promise<void> {
+  const pool = await getPool();
+  await pool.query("DELETE FROM settings WHERE key = $1", [key]);
 }

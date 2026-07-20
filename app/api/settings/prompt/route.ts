@@ -9,9 +9,9 @@ import {
 
 export async function GET() {
   return NextResponse.json({
-    prompt: getEffectiveSystemPrompt(),
+    prompt: await getEffectiveSystemPrompt(),
     default: getDefaultSystemPrompt(),
-    isCustom: isSystemPromptCustomized(),
+    isCustom: await isSystemPromptCustomized(),
   });
 }
 
@@ -19,11 +19,11 @@ export async function PUT(request: Request) {
   try {
     const body = await request.json();
     const prompt = String(body.prompt ?? "");
-    setCustomSystemPrompt(prompt);
+    await setCustomSystemPrompt(prompt);
     return NextResponse.json({
-      prompt: getEffectiveSystemPrompt(),
+      prompt: await getEffectiveSystemPrompt(),
       default: getDefaultSystemPrompt(),
-      isCustom: isSystemPromptCustomized(),
+      isCustom: await isSystemPromptCustomized(),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save prompt";
@@ -32,10 +32,10 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE() {
-  resetSystemPrompt();
+  await resetSystemPrompt();
   return NextResponse.json({
-    prompt: getEffectiveSystemPrompt(),
+    prompt: await getEffectiveSystemPrompt(),
     default: getDefaultSystemPrompt(),
-    isCustom: isSystemPromptCustomized(),
+    isCustom: await isSystemPromptCustomized(),
   });
 }

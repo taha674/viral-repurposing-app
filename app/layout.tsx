@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import { hasAppPassword } from "@/lib/config";
+import { LogoutButton } from "./LogoutButton";
 
 export const metadata: Metadata = {
   title: "Viral Repurposing — Cyrus Amin",
@@ -22,6 +24,7 @@ export default function RootLayout({
             <Link href="/accounts">Tracked Accounts</Link>
             <Link href="/settings">Settings</Link>
           </nav>
+          {hasAppPassword() && <LogoutButton />}
         </header>
         <main className="container">{children}</main>
       </body>

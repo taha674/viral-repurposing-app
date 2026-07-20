@@ -1,12 +1,7 @@
-import Database from "better-sqlite3";
-import path from "node:path";
-import fs from "node:fs";
+import { Pool } from "pg";
 
-// Local SQLite store. Schema mirrors ../reference-inputs.md / PRD §6.
-// The Postgres port (Railway) is a later phase; keep this shape close to it.
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "app.db");
+// Postgres store (Railway-managed). Schema mirrors ../reference-inputs.md / PRD §6
+// and the prior local-SQLite shape as closely as possible.
 
 // Seed accounts from reference-inputs.md (Instagram-only MVP).
 const SEED_HANDLES = [
@@ -24,36 +19,54 @@ const SEED_HANDLES = [
   "therajpatels",
 ];
 
-let _db: Database.Database | null = null;
+let _pool: Pool | null = null;
+let _ready: Promise<void> | null = null;
 
-export function getDb(): Database.Database {
-  if (_db) return _db;
+function isLocalHost(connectionString: string): boolean {
+  try {
+    const host = new URL(connectionString).hostname;
+    return host === "localhost" || host === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
 
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+function createPool(): Pool {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL is not set. Provision a Postgres database and set DATABASE_URL " +
+        "(Railway sets this automatically when you attach its Postgres addon)."
+    );
+  }
+  return new Pool({
+    connectionString,
+    // Railway's Postgres (and most managed hosts) require SSL for
+    // non-localhost connections but use a self-signed cert chain.
+    ssl: isLocalHost(connectionString) ? undefined : { rejectUnauthorized: false },
+  });
+}
 
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-
-  db.exec(`
+async function ensureSchema(pool: Pool): Promise<void> {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS tracked_accounts (
-      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      id                SERIAL PRIMARY KEY,
       platform          TEXT NOT NULL DEFAULT 'instagram',
       handle            TEXT NOT NULL UNIQUE,
-      active            INTEGER NOT NULL DEFAULT 1,
-      last_scanned_at   TEXT,
+      active            BOOLEAN NOT NULL DEFAULT TRUE,
+      last_scanned_at   TIMESTAMPTZ,
       reels_found_count INTEGER NOT NULL DEFAULT 0,
-      created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
     CREATE TABLE IF NOT EXISTS reels (
-      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      id                SERIAL PRIMARY KEY,
       account_id        INTEGER REFERENCES tracked_accounts(id) ON DELETE SET NULL,
       platform          TEXT NOT NULL DEFAULT 'instagram',
       url               TEXT NOT NULL,
       shortcode         TEXT UNIQUE,
       views             INTEGER,
-      date_found        TEXT NOT NULL DEFAULT (datetime('now')),
+      date_found        TIMESTAMPTZ NOT NULL DEFAULT now(),
       source            TEXT NOT NULL,
       transcript        TEXT,
       transcript_status TEXT NOT NULL DEFAULT 'pending',
@@ -61,14 +74,17 @@ export function getDb(): Database.Database {
       adapted_script    TEXT,
       red_line_flag     TEXT NOT NULL DEFAULT 'none',
       red_line_reason   TEXT,
+      voiceover_status  TEXT NOT NULL DEFAULT 'none',
+      voiceover_path    TEXT,
+      voiceover_error   TEXT,
       status            TEXT NOT NULL DEFAULT 'new',
-      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
     CREATE TABLE IF NOT EXISTS scan_logs (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      id          SERIAL PRIMARY KEY,
+      run_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
       account_id  INTEGER,
       handle      TEXT NOT NULL,
       status      TEXT NOT NULL,
@@ -81,54 +97,46 @@ export function getDb(): Database.Database {
     CREATE TABLE IF NOT EXISTS settings (
       key        TEXT PRIMARY KEY,
       value      TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
     CREATE INDEX IF NOT EXISTS idx_reels_status ON reels(status);
     CREATE INDEX IF NOT EXISTS idx_reels_account ON reels(account_id);
   `);
 
-  migrateVoiceoverColumns(db);
-  seedAccounts(db);
-
-  _db = db;
-  return db;
-}
-
-// Additive migration for the ElevenLabs voiceover step. Guarded on existing
-// columns so it's safe to run against an already-populated local DB file.
-function migrateVoiceoverColumns(db: Database.Database): void {
-  const cols = (db.prepare("PRAGMA table_info(reels)").all() as { name: string }[]).map(
-    (c) => c.name
-  );
-  if (!cols.includes("voiceover_status")) {
-    db.exec(
-      "ALTER TABLE reels ADD COLUMN voiceover_status TEXT NOT NULL DEFAULT 'none'"
-    );
-  }
-  if (!cols.includes("voiceover_path")) {
-    db.exec("ALTER TABLE reels ADD COLUMN voiceover_path TEXT");
-  }
-  if (!cols.includes("voiceover_error")) {
-    db.exec("ALTER TABLE reels ADD COLUMN voiceover_error TEXT");
-  }
+  await seedAccounts(pool);
 }
 
 // One-time seed of the tracked-account list. Idempotent: only runs when the
 // table is empty, so removing an account in the UI won't resurrect it.
-function seedAccounts(db: Database.Database) {
-  const count = (
-    db.prepare("SELECT COUNT(*) AS n FROM tracked_accounts").get() as {
-      n: number;
-    }
-  ).n;
-  if (count > 0) return;
-
-  const insert = db.prepare(
-    "INSERT INTO tracked_accounts (platform, handle) VALUES ('instagram', ?)"
+async function seedAccounts(pool: Pool): Promise<void> {
+  const { rows } = await pool.query<{ n: string }>(
+    "SELECT COUNT(*) AS n FROM tracked_accounts"
   );
-  const tx = db.transaction((handles: string[]) => {
-    for (const h of handles) insert.run(h);
-  });
-  tx(SEED_HANDLES);
+  if (Number(rows[0].n) > 0) return;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const handle of SEED_HANDLES) {
+      await client.query(
+        "INSERT INTO tracked_accounts (platform, handle) VALUES ('instagram', $1)",
+        [handle]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// Returns a ready-to-query pool; schema creation + seeding run once per process.
+export async function getPool(): Promise<Pool> {
+  if (!_pool) _pool = createPool();
+  if (!_ready) _ready = ensureSchema(_pool);
+  await _ready;
+  return _pool;
 }

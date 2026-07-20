@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { listAccounts, addAccount } from "@/lib/accounts";
 
 export async function GET() {
-  return NextResponse.json({ accounts: listAccounts() });
+  return NextResponse.json({ accounts: await listAccounts() });
 }
 
 export async function POST(request: Request) {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     if (!handle) {
       return NextResponse.json({ error: "handle is required" }, { status: 400 });
     }
-    const account = addAccount(handle);
+    const account = await addAccount(handle);
     return NextResponse.json({ account }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to add account";

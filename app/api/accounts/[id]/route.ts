@@ -10,7 +10,7 @@ export async function PATCH(
   if (typeof body.active !== "boolean") {
     return NextResponse.json({ error: "active (boolean) required" }, { status: 400 });
   }
-  setAccountActive(Number(id), body.active);
+  await setAccountActive(Number(id), body.active);
   return NextResponse.json({ ok: true });
 }
 
@@ -19,6 +19,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  removeAccount(Number(id));
+  await removeAccount(Number(id));
   return NextResponse.json({ ok: true });
 }

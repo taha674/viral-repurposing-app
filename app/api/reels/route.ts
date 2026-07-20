@@ -6,7 +6,7 @@ import type { ReelStatus } from "@/lib/types";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status") as ReelStatus | null;
-  return NextResponse.json({ reels: listReels(status ?? undefined) });
+  return NextResponse.json({ reels: await listReels(status ?? undefined) });
 }
 
 export async function POST(request: Request) {
