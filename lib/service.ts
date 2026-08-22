@@ -230,8 +230,7 @@ export async function runScan(): Promise<ScanSummary> {
 
   for (const account of accounts) {
     try {
-      // Narrow the sweep to posts newer than the last successful scan.
-      const scraped = await scanAccount(account.handle, account.last_scanned_at);
+      const scraped = await scanAccount(account.handle);
       const qualifying = scraped.filter(
         (r) => r.views !== null && r.views >= config.viewThreshold && r.url
       );

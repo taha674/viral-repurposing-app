@@ -173,9 +173,20 @@ export async function updateEditable(
   await touch(id);
 }
 
+// Only ever called for the two human-decision transitions (approve/archive —
+// see app/page.tsx). Clears the red-line flag/reason on every call: the flag
+// is a first-pass hint for the human reviewer, not a verdict, and taking a
+// manual status action on the reel IS that human review. Leaving a stale
+// "needs_review"/"rejected" flag on an already-approved reel is confusing,
+// not a compliance safeguard — the human already made the call.
 export async function setStatus(id: number, status: ReelStatus): Promise<void> {
   const pool = await getPool();
-  await pool.query("UPDATE reels SET status = $1 WHERE id = $2", [status, id]);
+  await pool.query(
+    `UPDATE reels
+       SET status = $1, red_line_flag = 'none', red_line_reason = NULL
+     WHERE id = $2`,
+    [status, id]
+  );
   await touch(id);
 }
 

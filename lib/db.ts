@@ -1,7 +1,19 @@
-import { Pool } from "pg";
+import { Pool, types } from "pg";
 
 // Postgres store (Railway-managed). Schema mirrors ../reference-inputs.md / PRD §6
 // and the prior local-SQLite shape as closely as possible.
+
+// node-postgres parses TIMESTAMPTZ (OID 1184) into a JS Date object by
+// default. Every timestamp column here (last_scanned_at, date_found,
+// created_at, updated_at, run_at) is typed as `string` throughout the
+// codebase — a holdover from the SQLite days where datetime('now') really
+// was a string — and callers rely on that (e.g. scanAccount()'s
+// `since.slice(0, 10)`). Registering a passthrough parser keeps those
+// columns as the raw string Postgres sends over the wire, matching what
+// every type and caller already assumes, instead of silently becoming Date
+// objects that break `.slice()` and JSX rendering.
+types.setTypeParser(1114, (val) => val); // TIMESTAMP (no tz), just in case
+types.setTypeParser(1184, (val) => val); // TIMESTAMPTZ
 
 // Seed accounts from reference-inputs.md (Instagram-only MVP).
 const SEED_HANDLES = [

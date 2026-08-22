@@ -91,11 +91,22 @@ async function runActor(
 }
 
 // Weekly scan: view counts only (transcript OFF — the cheap sweep).
-// `since` (ISO date) narrows the sweep to posts newer than the last scan.
-export async function scanAccount(
-  handle: string,
-  since?: string | null
-): Promise<ScrapedReel[]> {
+//
+// Deliberately does NOT pass onlyPostsNewerThan. "New reel" detection
+// already happens entirely at our own DB layer (insertReel dedupes on
+// shortcode; runScan only pulls a transcript for genuinely-new rows) — the
+// Apify-side date cursor was a pure optimization, not load-bearing for
+// correctness. It was removed 2026-08-22 after it caused false failures: the
+// actor reports "no posts match this filter" with the same generic
+// `error: "no_items"` / "Empty or private data for provided input" it uses
+// for an actually-blocked or private profile, so there's no way to tell
+// "nothing new since last scan" (healthy) apart from "genuinely can't scrape
+// this account" (a real failure) from the response alone. Always fetching
+// the last `resultsLimit` posts and letting our dedupe sort out what's new
+// avoids that ambiguity entirely, and costs nothing extra — the original
+// volume estimate in reference-inputs.md already assumed the full per-account
+// pull, not a filtered subset.
+export async function scanAccount(handle: string): Promise<ScrapedReel[]> {
   const input: Record<string, unknown> = {
     username: [handle],
     resultsLimit: config.scanPostsPerAccount,
@@ -105,7 +116,6 @@ export async function scanAccount(
     skipPinnedPosts: true,
     skipTrialReels: true,
   };
-  if (since) input.onlyPostsNewerThan = since.slice(0, 10);
   return runActor(input);
 }
 
