@@ -19,6 +19,18 @@ function flagBadge(flag: string) {
   return <span className="badge">no flag</span>;
 }
 
+function formatDateFound(dateFound: string): string {
+  const d = new Date(dateFound);
+  if (Number.isNaN(d.getTime())) return dateFound;
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function ReviewQueue() {
   const [reels, setReels] = useState<Reel[]>([]);
   const [filter, setFilter] = useState<ReelStatus | "all">("all");
@@ -152,6 +164,7 @@ export default function ReviewQueue() {
                 <th>Reel</th>
                 <th>Views</th>
                 <th>Source</th>
+                <th>Found</th>
                 <th>Transcript</th>
                 <th>Status</th>
                 <th>Flag</th>
@@ -175,6 +188,7 @@ export default function ReviewQueue() {
                   </td>
                   <td>{r.views?.toLocaleString() ?? "—"}</td>
                   <td className="muted">{r.source}</td>
+                  <td className="muted">{formatDateFound(r.date_found)}</td>
                   <td>
                     <span
                       className={`badge ${
@@ -194,7 +208,7 @@ export default function ReviewQueue() {
               ))}
               {reels.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={7} className="muted">
                     No reels in this view.
                   </td>
                 </tr>
