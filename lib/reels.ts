@@ -6,6 +6,8 @@ import type {
   TranscriptStatus,
   RedLineFlag,
   VoiceoverStatus,
+  VoiceoverAlignment,
+  CaptionsStatus,
   Analysis,
 } from "./types";
 
@@ -143,12 +145,30 @@ export async function setVoiceover(
   id: number,
   status: VoiceoverStatus,
   filePath: string | null,
+  error: string | null,
+  alignment?: VoiceoverAlignment | null
+): Promise<void> {
+  const pool = await getPool();
+  await pool.query(
+    `UPDATE reels
+       SET voiceover_status = $1, voiceover_path = $2, voiceover_error = $3,
+           voiceover_alignment = $4
+     WHERE id = $5`,
+    [status, filePath, error, alignment ? JSON.stringify(alignment) : null, id]
+  );
+  await touch(id);
+}
+
+export async function setCaptions(
+  id: number,
+  status: CaptionsStatus,
+  videoPath: string | null,
   error: string | null
 ): Promise<void> {
   const pool = await getPool();
   await pool.query(
-    "UPDATE reels SET voiceover_status = $1, voiceover_path = $2, voiceover_error = $3 WHERE id = $4",
-    [status, filePath, error, id]
+    "UPDATE reels SET captions_status = $1, captions_video_path = $2, captions_error = $3 WHERE id = $4",
+    [status, videoPath, error, id]
   );
   await touch(id);
 }

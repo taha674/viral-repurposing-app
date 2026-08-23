@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { Reel, Analysis, ReelStatus } from "@/lib/types";
+import type { Reel, Analysis, ReelStatus, ScanLog } from "@/lib/types";
 
 const STATUS_FILTERS: (ReelStatus | "all")[] = [
   "all",
@@ -10,7 +10,20 @@ const STATUS_FILTERS: (ReelStatus | "all")[] = [
   "adapted",
   "approved",
   "archived",
+  "rejected",
 ];
+
+function formatScanTime(runAt: string): string {
+  const d = new Date(runAt);
+  if (Number.isNaN(d.getTime())) return runAt;
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function flagBadge(flag: string) {
   if (flag === "rejected") return <span className="badge red">rejected</span>;
@@ -41,6 +54,7 @@ export default function ReviewQueue() {
   const [addErr, setAddErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
+  const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
 
   const load = useCallback(async () => {
     const q = filter === "all" ? "" : `?status=${filter}`;
@@ -49,9 +63,19 @@ export default function ReviewQueue() {
     setReels(data.reels ?? []);
   }, [filter]);
 
+  const loadScanLogs = useCallback(async () => {
+    const res = await fetch("/api/scan");
+    const data = await res.json();
+    setScanLogs(data.logs ?? []);
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadScanLogs();
+  }, [loadScanLogs]);
 
   async function addReel(force: boolean) {
     setAddErr("");
@@ -92,6 +116,7 @@ export default function ReviewQueue() {
       `Scanned ${s.scannedAccounts} accounts · ${s.newReels} new reels · ${s.errors} errors.`
     );
     load();
+    loadScanLogs();
   }
 
   return (
@@ -137,10 +162,47 @@ export default function ReviewQueue() {
             </span>
           </div>
           <button onClick={runScan} disabled={busy}>
-            Run scan now
+            {busy ? "Scanning…" : "Run scan now"}
           </button>
         </div>
         {scanMsg && <p className="ok">{scanMsg}</p>}
+        {scanLogs.length > 0 && (
+          <>
+            <p className="muted" style={{ marginTop: 8, marginBottom: 4 }}>
+              Last scan: {formatScanTime(scanLogs[0].run_at)}. This covers the
+              scheduled weekly run too — reload the page any time to check
+              whether it's happened and what it found.
+            </p>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Account</th>
+                    <th>Status</th>
+                    <th>Reels found</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scanLogs.slice(0, 15).map((l) => (
+                    <tr key={l.id}>
+                      <td className="muted">{formatScanTime(l.run_at)}</td>
+                      <td>{l.handle}</td>
+                      <td>
+                        <span className={`badge ${l.status === "error" ? "red" : "green"}`}>
+                          {l.status}
+                        </span>
+                      </td>
+                      <td>{l.reels_found}</td>
+                      <td className="muted">{l.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -232,6 +294,7 @@ function ReelDetail({ id, onChange }: { id: number; onChange: () => void }) {
   const [script, setScript] = useState("");
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
+  const [captionFile, setCaptionFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/reels/${id}`);
@@ -303,6 +366,35 @@ function ReelDetail({ id, onChange }: { id: number; onChange: () => void }) {
     if (!res.ok) setErr((await res.json()).error ?? "Failed to open Finder");
   }
 
+  async function burnCaptions() {
+    if (!captionFile) return;
+    setErr("");
+    setBusy("captions");
+    const body = new FormData();
+    body.append("video", captionFile);
+    const res = await fetch(`/api/reels/${id}/captions`, {
+      method: "POST",
+      body,
+    });
+    setBusy("");
+    if (!res.ok) {
+      setErr((await res.json()).error ?? "Caption burn failed");
+      await load();
+      return;
+    }
+    setCaptionFile(null);
+    await load();
+    onChange();
+  }
+
+  async function revealCaptionedVideo() {
+    setErr("");
+    setBusy("reveal-captions");
+    const res = await fetch(`/api/reels/${id}/captions/reveal`, { method: "POST" });
+    setBusy("");
+    if (!res.ok) setErr((await res.json()).error ?? "Failed to open Finder");
+  }
+
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -312,7 +404,18 @@ function ReelDetail({ id, onChange }: { id: number; onChange: () => void }) {
             · {reel.views?.toLocaleString() ?? "—"} views · {reel.status}
           </span>
         </h2>
-        {flagBadge(reel.red_line_flag)}
+        <div className="row" style={{ alignItems: "center" }}>
+          {flagBadge(reel.red_line_flag)}
+          {reel.status !== "archived" && reel.status !== "rejected" && (
+            <button
+              className="secondary"
+              onClick={() => saveField({ status: "rejected" })}
+              title="Take this reel out of the review queue for good"
+            >
+              Reject
+            </button>
+          )}
+        </div>
       </div>
 
       {reel.red_line_reason && (
@@ -459,6 +562,63 @@ function ReelDetail({ id, onChange }: { id: number; onChange: () => void }) {
                 </>
               )}
             </div>
+          )}
+
+          {reel.voiceover_status === "success" && (
+            <>
+              <h2 style={{ marginTop: 16 }}>
+                Burn captions{" "}
+                <span className="muted">
+                  (upload the finished HeyGen video — subtitles + metadata
+                  strip happen here)
+                </span>
+              </h2>
+              <div className="row" style={{ alignItems: "center" }}>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setCaptionFile(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  onClick={burnCaptions}
+                  disabled={busy === "captions" || !captionFile}
+                >
+                  {busy === "captions" ? "Burning…" : "Burn Captions"}
+                </button>
+              </div>
+              {reel.captions_status !== "none" && (
+                <div className="row" style={{ alignItems: "center" }}>
+                  <p className={reel.captions_status === "failed" ? "error" : "ok"}>
+                    Captions: {reel.captions_status}
+                    {reel.captions_status === "success" &&
+                      reel.captions_video_path &&
+                      ` — saved to ${reel.captions_video_path}`}
+                    {reel.captions_status === "failed" &&
+                      reel.captions_error &&
+                      ` — ${reel.captions_error}`}
+                  </p>
+                  {reel.captions_status === "success" && (
+                    <>
+                      <a
+                        className="secondary button-like"
+                        href={`/api/reels/${id}/captions/download`}
+                        download
+                      >
+                        Download
+                      </a>
+                      <button
+                        className="secondary"
+                        onClick={revealCaptionedVideo}
+                        disabled={busy === "reveal-captions"}
+                        title="Local machine only — opens Finder where the app server is running."
+                      >
+                        {busy === "reveal-captions" ? "Opening…" : "Reveal in Finder"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </>
       )}

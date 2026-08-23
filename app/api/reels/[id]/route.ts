@@ -8,6 +8,7 @@ const ALLOWED_STATUSES: ReelStatus[] = [
   "adapted",
   "approved",
   "archived",
+  "rejected",
 ];
 
 export async function GET(

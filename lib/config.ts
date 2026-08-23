@@ -39,7 +39,15 @@ export const config = {
   // which matters here since scripts may contain ElevenLabs audio tags that
   // get passed through unmodified.
   elevenlabsModelId: process.env.ELEVENLABS_MODEL_ID ?? "eleven_v3",
-  elevenlabsTimeoutMs: intEnv("ELEVENLABS_TIMEOUT_MS", 30_000),
+  // eleven_v3 is a slower, higher-latency model than turbo/flash — 30s was
+  // cutting off real (non-stuck) generations in production ("This operation
+  // was aborted" x2, i.e. both attempts hit the client-side AbortController,
+  // not an ElevenLabs-side failure). Raised well above v3's typical
+  // generation time. This also matters for spend: aborting a request that
+  // already finished generating server-side, then retrying, risks paying
+  // for the same script twice — a too-short timeout is a cost bug, not just
+  // a reliability one.
+  elevenlabsTimeoutMs: intEnv("ELEVENLABS_TIMEOUT_MS", 120_000),
   // Root-level output folder for voiceovers, picked up manually for HeyGen.
   // Default: the Automation project root's reels/ dir (two levels up from webapp/).
   // `?.trim()` matters here: an env var present-but-blank (e.g. `REELS_OUTPUT_DIR=`
@@ -66,6 +74,16 @@ export const config = {
   // Budget guard: block generation instead of spending credits on an
   // oversized script. ~90s of narration has real headroom under this.
   voiceoverMaxChars: intEnv("VOICEOVER_MAX_CHARS", 6_000),
+
+  // Subtitle burn-in (local, no paid API — ffmpeg + a local Whisper model).
+  // Model choice: small English-only checkpoint, good enough for clean
+  // TTS-quality speech, fast on CPU for reel-length (<2min) clips.
+  whisperModel: process.env.WHISPER_MODEL ?? "Xenova/whisper-base.en",
+  // Guards against ever hanging on a pathological upload — not a paid-API
+  // cap, but the same "never loop/hang silently" principle applies.
+  captionsMaxVideoMb: intEnv("CAPTIONS_MAX_VIDEO_MB", 500),
+  captionsTranscribeTimeoutMs: intEnv("CAPTIONS_TRANSCRIBE_TIMEOUT_MS", 180_000),
+  captionsFfmpegTimeoutMs: intEnv("CAPTIONS_FFMPEG_TIMEOUT_MS", 180_000),
 } as const;
 
 export function hasAppPassword(): boolean {

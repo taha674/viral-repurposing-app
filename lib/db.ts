@@ -89,6 +89,10 @@ async function ensureSchema(pool: Pool): Promise<void> {
       voiceover_status  TEXT NOT NULL DEFAULT 'none',
       voiceover_path    TEXT,
       voiceover_error   TEXT,
+      voiceover_alignment JSONB,
+      captions_status   TEXT NOT NULL DEFAULT 'none',
+      captions_video_path TEXT,
+      captions_error    TEXT,
       status            TEXT NOT NULL DEFAULT 'new',
       created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -114,6 +118,14 @@ async function ensureSchema(pool: Pool): Promise<void> {
 
     CREATE INDEX IF NOT EXISTS idx_reels_status ON reels(status);
     CREATE INDEX IF NOT EXISTS idx_reels_account ON reels(account_id);
+
+    -- CREATE TABLE IF NOT EXISTS above is a no-op against the live prod
+    -- table, so new columns added after the initial migration need an
+    -- explicit ALTER here too.
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS voiceover_alignment JSONB;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS captions_status TEXT NOT NULL DEFAULT 'none';
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS captions_video_path TEXT;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS captions_error TEXT;
   `);
 
   await seedAccounts(pool);

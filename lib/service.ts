@@ -13,11 +13,19 @@ import {
   setTranscript,
   setAdaptation,
   setVoiceover,
+  setCaptions,
   extractShortcode,
 } from "./reels";
 import { scanAccount, fetchReel } from "./apify";
 import { runAdaptation } from "./gemini";
-import { generateVoiceover as callElevenLabs } from "./elevenlabs";
+import { generateVoiceoverWithTimestamps } from "./elevenlabs";
+import {
+  probeVideo,
+  extractAudioForTranscription,
+  burnSubtitlesAndStripMetadata,
+} from "./ffmpeg";
+import { transcribeWavForWordTimings } from "./whisper";
+import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import type { Reel, RedLineFlag } from "./types";
 
 // --- Transcript retrieval (shared by manual add + scan) ---
@@ -105,13 +113,13 @@ export async function generateVoiceover(reelId: number): Promise<Reel> {
   }
 
   try {
-    const audio = await callElevenLabs(script);
+    const { audio, alignment } = await generateVoiceoverWithTimestamps(script);
     const today = new Date().toISOString().slice(0, 10);
     const dir = path.join(config.reelsOutputDir, `${reelId}_${today}`);
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, "voiceover.mp3");
     fs.writeFileSync(filePath, audio);
-    await setVoiceover(reelId, "success", filePath, null);
+    await setVoiceover(reelId, "success", filePath, null, alignment);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await setVoiceover(reelId, "failed", null, message);
@@ -119,6 +127,86 @@ export async function generateVoiceover(reelId: number): Promise<Reel> {
   }
 
   return (await getReel(reelId))!;
+}
+
+// --- Subtitle burn-in on the final HeyGen/edited video (2026-08-23) ---
+// Caption timing prefers the ElevenLabs alignment captured when the
+// voiceover was generated (exact, free, no extra step) and falls back to a
+// local open-source Whisper transcription of the uploaded video's own audio
+// when no alignment is on record (older reels, or a voiceover generated
+// before this feature existed). Burning and metadata-stripping happen in
+// the same ffmpeg pass — this is the first place the pipeline actually
+// produces a video file, so the mandatory strip applies here.
+export async function burnCaptions(
+  reelId: number,
+  videoBuffer: Buffer
+): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.status !== "approved") {
+    throw new Error("Approve the script before burning captions onto a video.");
+  }
+  if (reel.voiceover_status !== "success") {
+    throw new Error("Generate the voiceover before burning captions.");
+  }
+
+  await setCaptions(reelId, "processing", null, null);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const dir = path.join(config.reelsOutputDir, `${reelId}_${today}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const sourcePath = path.join(dir, "source_video.mp4");
+  const wavPath = path.join(dir, "source_audio.wav");
+  const assPath = path.join(dir, "captions.ass");
+  const outPath = path.join(dir, "final_captioned.mp4");
+
+  try {
+    fs.writeFileSync(sourcePath, videoBuffer);
+    const probe = await probeVideo(sourcePath);
+
+    const words = reel.voiceover_alignment
+      ? alignmentToWordTimings(reel.voiceover_alignment)
+      : await (async () => {
+          await extractAudioForTranscription(sourcePath, wavPath);
+          return transcribeWavForWordTimings(wavPath);
+        })();
+
+    if (words.length === 0) {
+      throw new Error("No word timings available to caption this video.");
+    }
+
+    const fontSize = captionFontSize(probe.height);
+    const lines = layoutLines(words, probe.width, fontSize);
+    fs.writeFileSync(assPath, linesToAss(lines, probe.width, probe.height));
+    await burnSubtitlesAndStripMetadata(sourcePath, assPath, outPath);
+
+    await setCaptions(reelId, "success", outPath, null);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await setCaptions(reelId, "failed", null, message);
+    throw err;
+  } finally {
+    // Intermediate files aren't needed once burned; the source upload and
+    // extracted audio would otherwise pile up in the reel folder.
+    for (const f of [wavPath, assPath]) {
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    }
+  }
+
+  return (await getReel(reelId))!;
+}
+
+// --- Reveal the captioned video in Finder (local machine only) ---
+export async function revealCaptionedVideo(reelId: number): Promise<void> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.captions_status !== "success" || !reel.captions_video_path) {
+    throw new Error("No captioned video to reveal yet — burn captions first.");
+  }
+  if (!fs.existsSync(reel.captions_video_path)) {
+    throw new Error(`Captioned video no longer exists at ${reel.captions_video_path}.`);
+  }
+  await execFileAsync("open", ["-R", reel.captions_video_path]);
 }
 
 // --- Reveal the generated voiceover in Finder (local machine only) ---
@@ -173,6 +261,10 @@ export async function addManualReel(
         voiceover_status: "none",
         voiceover_path: null,
         voiceover_error: null,
+        voiceover_alignment: null,
+        captions_status: "none",
+        captions_video_path: null,
+        captions_error: null,
         status: "new",
         created_at: "",
         updated_at: "",

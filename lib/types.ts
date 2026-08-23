@@ -6,12 +6,23 @@ export type ReelSource = "weekly_scan" | "manual";
 export type TranscriptStatus = "pending" | "success" | "failed";
 export type RedLineFlag = "none" | "needs_review" | "rejected";
 export type VoiceoverStatus = "none" | "generating" | "success" | "failed";
+export type CaptionsStatus = "none" | "processing" | "success" | "failed";
+
+// Character-level timing ElevenLabs returns from the with-timestamps
+// endpoint, alongside the audio, at no extra cost. Preferred source for
+// caption timing whenever a reel has it — exact, no transcription needed.
+export interface VoiceoverAlignment {
+  characters: string[];
+  character_start_times_seconds: number[];
+  character_end_times_seconds: number[];
+}
 export type ReelStatus =
   | "new"
   | "transcribed"
   | "adapted"
   | "approved"
-  | "archived";
+  | "archived"
+  | "rejected";
 
 export interface TrackedAccount {
   id: number;
@@ -51,6 +62,10 @@ export interface Reel {
   voiceover_status: VoiceoverStatus;
   voiceover_path: string | null;
   voiceover_error: string | null;
+  voiceover_alignment: VoiceoverAlignment | null;
+  captions_status: CaptionsStatus;
+  captions_video_path: string | null;
+  captions_error: string | null;
   status: ReelStatus;
   created_at: string;
   updated_at: string;
