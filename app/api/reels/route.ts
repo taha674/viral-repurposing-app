@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { listReels } from "@/lib/reels";
+import { listReelSummaries } from "@/lib/reels";
 import { addManualReel } from "@/lib/service";
-import type { ReelStatus } from "@/lib/types";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status") as ReelStatus | null;
-  return NextResponse.json({ reels: await listReels(status ?? undefined) });
+// Board payload: every reel, trimmed (see listReelSummaries — no transcript,
+// analysis, or voiceover_alignment). The board groups these into columns via
+// lib/stages.ts#stageOf client-side, so there's no server-side status filter
+// here any more.
+export async function GET() {
+  return NextResponse.json({ reels: await listReelSummaries() });
 }
 
 export async function POST(request: Request) {

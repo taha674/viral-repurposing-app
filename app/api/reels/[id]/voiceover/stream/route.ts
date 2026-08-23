@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getReel } from "@/lib/reels";
 import { streamFile } from "@/lib/fileStream";
 
-// Streams the generated voiceover .mp3 for download — the remote-deploy
-// equivalent of "Reveal in Finder" (which only works on the local machine).
+// Inline audio for the Audio stage's <audio> play button — same file as the
+// download route, but Content-Disposition: inline and Range-aware so the
+// player can seek.
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -15,10 +16,10 @@ export async function GET(
   }
   if (reel.voiceover_status !== "success" || !reel.voiceover_path) {
     return NextResponse.json(
-      { error: "No voiceover file to download yet — generate one first." },
+      { error: "No voiceover file yet — generate one first." },
       { status: 400 }
     );
   }
   const name = reel.slug ? `${reel.slug}-audio.mp3` : `reel_${reel.id}_voiceover.mp3`;
-  return streamFile(request, reel.voiceover_path, "audio/mpeg", "attachment", name);
+  return streamFile(request, reel.voiceover_path, "audio/mpeg", "inline", name);
 }

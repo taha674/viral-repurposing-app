@@ -3,6 +3,7 @@ import type {
   Reel,
   ReelSource,
   ReelStatus,
+  ReelSummary,
   TranscriptStatus,
   RedLineFlag,
   VoiceoverStatus,
@@ -33,6 +34,29 @@ export async function listReels(status?: ReelStatus): Promise<Reel[]> {
   return rows;
 }
 
+// Board payload: every reel at once, minus the fields that would make that
+// expensive — transcript, analysis JSON, and especially voiceover_alignment
+// (three parallel per-character arrays). A short transcript excerpt is
+// computed in SQL instead of shipping the whole thing. The stage popup
+// fetches the full Reel separately via GET /api/reels/[id] when opened.
+const SUMMARY_COLUMNS = `
+  id, account_id, platform, url, shortcode, views, date_found, source,
+  transcript_status, adapted_script, red_line_flag, red_line_reason,
+  voiceover_status, voiceover_path, voiceover_error,
+  captions_status, captions_video_path, captions_error,
+  source_video_path, slug, status, created_at, updated_at,
+  (transcript IS NOT NULL) AS has_transcript,
+  LEFT(transcript, 200) AS transcript_excerpt
+`;
+
+export async function listReelSummaries(): Promise<ReelSummary[]> {
+  const pool = await getPool();
+  const { rows } = await pool.query<ReelSummary>(
+    `SELECT ${SUMMARY_COLUMNS} FROM reels ORDER BY date_found DESC`
+  );
+  return rows;
+}
+
 export async function getReel(id: number): Promise<Reel | undefined> {
   const pool = await getPool();
   const { rows } = await pool.query<Reel>("SELECT * FROM reels WHERE id = $1", [
@@ -48,6 +72,20 @@ export async function findByShortcode(
   const { rows } = await pool.query<Reel>(
     "SELECT * FROM reels WHERE shortcode = $1",
     [shortcode]
+  );
+  return rows[0];
+}
+
+// Collision check for slug minting (lib/naming.ts) — excludes the reel's own
+// id so re-checking an already-slugged reel doesn't flag itself.
+export async function findBySlug(
+  slug: string,
+  excludeId: number
+): Promise<Reel | undefined> {
+  const pool = await getPool();
+  const { rows } = await pool.query<Reel>(
+    "SELECT * FROM reels WHERE slug = $1 AND id != $2",
+    [slug, excludeId]
   );
   return rows[0];
 }
@@ -173,6 +211,25 @@ export async function setCaptions(
   await touch(id);
 }
 
+// The finished HeyGen/edited video, uploaded before the subtitle burn.
+export async function setSourceVideo(id: number, path: string): Promise<void> {
+  const pool = await getPool();
+  await pool.query("UPDATE reels SET source_video_path = $1 WHERE id = $2", [
+    path,
+    id,
+  ]);
+  await touch(id);
+}
+
+// Minted once, on accept (see service.ts#acceptReel). Never re-derived from
+// a later transcript edit — the slug is the stable stem every file this reel
+// produces is named from (lib/naming.ts).
+export async function setSlug(id: number, slug: string): Promise<void> {
+  const pool = await getPool();
+  await pool.query("UPDATE reels SET slug = $1 WHERE id = $2", [slug, id]);
+  await touch(id);
+}
+
 export async function updateEditable(
   id: number,
   fields: { transcript?: string; adapted_script?: string }
@@ -193,12 +250,17 @@ export async function updateEditable(
   await touch(id);
 }
 
-// Only ever called for the two human-decision transitions (approve/archive —
-// see app/page.tsx). Clears the red-line flag/reason on every call: the flag
-// is a first-pass hint for the human reviewer, not a verdict, and taking a
-// manual status action on the reel IS that human review. Leaving a stale
-// "needs_review"/"rejected" flag on an already-approved reel is confusing,
-// not a compliance safeguard — the human already made the call.
+// Only for the human-decision transitions where the operator is genuinely
+// resolving the red-line flag: Approve (adaptation -> approved) and Reject
+// (scraped -> rejected). Clears the red-line flag/reason on every call: the
+// flag is a first-pass hint for the human reviewer, not a verdict, and
+// taking one of these two actions on the reel IS that human review. Leaving
+// a stale "needs_review"/"rejected" flag on an already-approved reel is
+// confusing, not a compliance safeguard — the human already made the call.
+//
+// Every other board transition (accept, send-to-video, burn, archive, tray
+// restores) goes through advanceStatus() below instead, which leaves the
+// flag untouched — those moves don't represent the operator resolving it.
 export async function setStatus(id: number, status: ReelStatus): Promise<void> {
   const pool = await getPool();
   await pool.query(
@@ -207,6 +269,14 @@ export async function setStatus(id: number, status: ReelStatus): Promise<void> {
      WHERE id = $2`,
     [status, id]
   );
+  await touch(id);
+}
+
+// Board transitions that are not a human resolving the red-line flag — see
+// setStatus's comment for which two transitions ARE that and use it instead.
+export async function advanceStatus(id: number, status: ReelStatus): Promise<void> {
+  const pool = await getPool();
+  await pool.query("UPDATE reels SET status = $1 WHERE id = $2", [status, id]);
   await touch(id);
 }
 

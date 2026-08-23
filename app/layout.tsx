@@ -20,7 +20,7 @@ export default function RootLayout({
         <header className="topbar">
           <div className="brand">Viral Repurposing</div>
           <nav>
-            <Link href="/">Review Queue</Link>
+            <Link href="/">Board</Link>
             <Link href="/accounts">Tracked Accounts</Link>
             <Link href="/settings">Settings</Link>
           </nav>

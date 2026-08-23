@@ -1,33 +1,17 @@
 import { NextResponse } from "next/server";
 import { burnCaptions } from "@/lib/service";
 import { parseAnalysis } from "@/lib/reels";
-import { config } from "@/lib/config";
 
-// Accepts a finished HeyGen/edited video (multipart field "video"), burns
-// word-synced subtitles onto it, and strips metadata in the same pass.
+// Burns word-synced subtitles onto the already-uploaded video (POST
+// .../video) and strips metadata in the same pass. No request body — the
+// upload and the burn are separate steps now (2026-08-23 kanban revamp).
 export async function POST(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
-    const formData = await request.formData();
-    const file = formData.get("video");
-    if (!(file instanceof File)) {
-      return NextResponse.json(
-        { error: 'No video file provided (form field "video").' },
-        { status: 400 }
-      );
-    }
-    const maxBytes = config.captionsMaxVideoMb * 1024 * 1024;
-    if (file.size > maxBytes) {
-      return NextResponse.json(
-        { error: `Video is over the ${config.captionsMaxVideoMb}MB cap.` },
-        { status: 400 }
-      );
-    }
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const reel = await burnCaptions(Number(id), buffer);
+    const reel = await burnCaptions(Number(id));
     return NextResponse.json({ reel, analysis: parseAnalysis(reel) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Caption burn failed";

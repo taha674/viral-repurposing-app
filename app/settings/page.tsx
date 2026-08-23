@@ -62,7 +62,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div>
+    <div className="narrow">
       <h1>Settings</h1>
       <p className="muted">
         Edit the system prompt driving the red-line-compliance adaptation

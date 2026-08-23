@@ -16,11 +16,18 @@ export interface VoiceoverAlignment {
   character_start_times_seconds: number[];
   character_end_times_seconds: number[];
 }
+// Ordered along the board's columns (lib/stages.ts maps these to columns).
+// "accepted", "video", and "captioned" were added with the kanban revamp:
+// the pipeline always had those beats, the old single-page UI just never
+// gave them a status of their own.
 export type ReelStatus =
-  | "new"
-  | "transcribed"
-  | "adapted"
-  | "approved"
+  | "new" // scraped, not yet triaged
+  | "transcribed" // scraped + transcript on record, still not triaged
+  | "accepted" // human accepted it onto the board
+  | "adapted" // adaptation has run, awaiting approval
+  | "approved" // script approved, voiceover stage
+  | "video" // HeyGen video uploaded, awaiting subtitle burn
+  | "captioned" // subtitles burned + metadata stripped — finished file
   | "archived"
   | "rejected";
 
@@ -66,6 +73,11 @@ export interface Reel {
   captions_status: CaptionsStatus;
   captions_video_path: string | null;
   captions_error: string | null;
+  // The finished HeyGen/edited video the operator uploads before the burn.
+  // Presence is the "video uploaded" signal — there is no separate status.
+  source_video_path: string | null;
+  // Stable file-naming stem, minted once on accept. See lib/naming.ts.
+  slug: string | null;
   status: ReelStatus;
   created_at: string;
   updated_at: string;
@@ -80,3 +92,18 @@ export interface ScanLog {
   message: string;
   reels_found: number;
 }
+
+// The board renders every reel at once, so it fetches a trimmed row: no
+// transcript, no analysis JSON, and above all no voiceover_alignment (three
+// parallel arrays with one entry per character — by far the largest column).
+// adapted_script stays because the Adaptation and Audio cards show an
+// excerpt of it. The stage popup fetches the full Reel via GET /api/reels/[id].
+export type ReelSummary = Omit<
+  Reel,
+  "transcript" | "analysis" | "voiceover_alignment"
+> & {
+  // Kept so cards can still show a transcript badge/excerpt without shipping
+  // the whole transcript to the browser.
+  has_transcript: boolean;
+  transcript_excerpt: string | null;
+};

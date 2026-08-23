@@ -51,7 +51,7 @@ export default function AccountsPage() {
   }
 
   return (
-    <div>
+    <div className="narrow">
       <h1>Tracked Accounts</h1>
       <p className="muted">
         Instagram accounts swept by the weekly scan. TikTok is a later phase.

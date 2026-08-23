@@ -14,8 +14,13 @@ import {
   setAdaptation,
   setVoiceover,
   setCaptions,
+  setSourceVideo,
+  setSlug,
+  findBySlug,
+  advanceStatus,
   extractShortcode,
 } from "./reels";
+import { baseSlug, reelFileName } from "./naming";
 import { scanAccount, fetchReel } from "./apify";
 import { runAdaptation } from "./gemini";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
@@ -27,6 +32,19 @@ import {
 import { transcribeWavForWordTimings } from "./whisper";
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import type { Reel, RedLineFlag } from "./types";
+
+// Returns the reel's slug, minting it if it doesn't have one yet. Minting
+// normally happens on accept (acceptReel, below); this fallback only fires
+// for reels that reached a later stage before the kanban revamp shipped
+// (pre-existing "approved" reels with no slug column value yet).
+async function ensureSlug(reel: Reel): Promise<string> {
+  if (reel.slug) return reel.slug;
+  const base = baseSlug(new Date(), reel.transcript, reel.id);
+  const collision = await findBySlug(base, reel.id);
+  const slug = collision ? `${base}-${reel.id}` : base;
+  await setSlug(reel.id, slug);
+  return slug;
+}
 
 // --- Transcript retrieval (shared by manual add + scan) ---
 // The Apify client already hard-caps retries; here we just translate a failed
@@ -43,6 +61,41 @@ export async function retrieveTranscript(reelId: number): Promise<Reel> {
     }
   } catch {
     await setTranscript(reelId, reel.transcript, "failed");
+  }
+  return (await getReel(reelId))!;
+}
+
+// --- Accept a scraped reel onto the board (2026-08-23 kanban revamp) ---
+// The human-decision gate between "discovered" and "worth adapting". Mints
+// the reel's slug here (see lib/naming.ts + ensureSlug above) so every file
+// this reel later produces shares one stable name, unaffected by transcript
+// edits made afterwards.
+export async function acceptReel(reelId: number): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.status !== "new" && reel.status !== "transcribed") {
+    throw new Error("Reel has already been accepted (or moved further along).");
+  }
+  await ensureSlug(reel);
+  await advanceStatus(reelId, "accepted");
+  return (await getReel(reelId))!;
+}
+
+// --- Restore a reel from the Rejected or Done tray back onto the board ---
+// Reject only ever happens from the Scraped column, and Archive only ever
+// happens from the Subtitled column (see app/components/stages), so which
+// column to restore into is fully determined by which tray the reel is in —
+// no separate "status before rejecting" bookkeeping needed.
+export async function restoreReel(reelId: number): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.status === "rejected") {
+    const target = reel.transcript_status === "success" ? "transcribed" : "new";
+    await advanceStatus(reelId, target);
+  } else if (reel.status === "archived") {
+    await advanceStatus(reelId, "captioned");
+  } else {
+    throw new Error("Reel is not in the Rejected or Done tray.");
   }
   return (await getReel(reelId))!;
 }
@@ -112,12 +165,16 @@ export async function generateVoiceover(reelId: number): Promise<Reel> {
     throw new Error(message);
   }
 
+  // Recorded before the network call so a page refresh mid-generation shows
+  // "generating" instead of silently reverting to the last known status.
+  await setVoiceover(reelId, "generating", null, null);
+
   try {
+    const slug = await ensureSlug(reel);
     const { audio, alignment } = await generateVoiceoverWithTimestamps(script);
-    const today = new Date().toISOString().slice(0, 10);
-    const dir = path.join(config.reelsOutputDir, `${reelId}_${today}`);
+    const dir = path.join(config.reelsOutputDir, slug);
     fs.mkdirSync(dir, { recursive: true });
-    const filePath = path.join(dir, "voiceover.mp3");
+    const filePath = path.join(dir, reelFileName(slug, "audio", "mp3"));
     fs.writeFileSync(filePath, audio);
     await setVoiceover(reelId, "success", filePath, null, alignment);
   } catch (err) {
@@ -129,39 +186,67 @@ export async function generateVoiceover(reelId: number): Promise<Reel> {
   return (await getReel(reelId))!;
 }
 
-// --- Subtitle burn-in on the final HeyGen/edited video (2026-08-23) ---
-// Caption timing prefers the ElevenLabs alignment captured when the
-// voiceover was generated (exact, free, no extra step) and falls back to a
-// local open-source Whisper transcription of the uploaded video's own audio
-// when no alignment is on record (older reels, or a voiceover generated
-// before this feature existed). Burning and metadata-stripping happen in
-// the same ffmpeg pass — this is the first place the pipeline actually
-// produces a video file, so the mandatory strip applies here.
-export async function burnCaptions(
+// --- Save the uploaded HeyGen/edited video (2026-08-23 kanban revamp) ---
+// The card reaches the Video column via an explicit "Send to video" step
+// (Audio popup, PATCH status -> "video" once voiceover_status is success —
+// see app/api/reels/[id]/route.ts) BEFORE any file exists; source_video_path
+// staying null is what tells the Video popup to show the upload control
+// instead of "Burn subtitles". This function only fills that file in — it
+// does not move the status, since the reel is already in the Video column
+// by the time an upload is possible.
+export async function saveSourceVideo(
   reelId: number,
   videoBuffer: Buffer
 ): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
-  if (reel.status !== "approved") {
-    throw new Error("Approve the script before burning captions onto a video.");
+  if (reel.status !== "video") {
+    throw new Error('Send this reel to the "Video" stage before uploading.');
+  }
+
+  const slug = await ensureSlug(reel);
+  const dir = path.join(config.reelsOutputDir, slug);
+  fs.mkdirSync(dir, { recursive: true });
+  const sourcePath = path.join(dir, reelFileName(slug, "source", "mp4"));
+  fs.writeFileSync(sourcePath, videoBuffer);
+
+  await setSourceVideo(reelId, sourcePath);
+
+  return (await getReel(reelId))!;
+}
+
+// --- Subtitle burn-in on the uploaded video (2026-08-23) ---
+// Caption timing prefers the ElevenLabs alignment captured when the
+// voiceover was generated (exact, free, no extra step) and falls back to a
+// local open-source Whisper transcription of the uploaded video's own audio
+// when no alignment is on record (older reels, or a voiceover generated
+// before this feature existed). Burning and metadata-stripping happen in
+// the same ffmpeg pass — this is the place the pipeline actually produces
+// its final video file, so the mandatory strip applies here.
+export async function burnCaptions(reelId: number): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.status !== "video") {
+    throw new Error("Upload the finished video before burning captions.");
   }
   if (reel.voiceover_status !== "success") {
     throw new Error("Generate the voiceover before burning captions.");
   }
+  if (!reel.source_video_path) {
+    throw new Error("No uploaded video found — upload one first.");
+  }
 
   await setCaptions(reelId, "processing", null, null);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const dir = path.join(config.reelsOutputDir, `${reelId}_${today}`);
+  const slug = await ensureSlug(reel);
+  const dir = path.join(config.reelsOutputDir, slug);
   fs.mkdirSync(dir, { recursive: true });
-  const sourcePath = path.join(dir, "source_video.mp4");
-  const wavPath = path.join(dir, "source_audio.wav");
-  const assPath = path.join(dir, "captions.ass");
-  const outPath = path.join(dir, "final_captioned.mp4");
+  const sourcePath = reel.source_video_path;
+  const wavPath = path.join(dir, `${slug}-extract.wav`);
+  const assPath = path.join(dir, `${slug}-captions.ass`);
+  const outPath = path.join(dir, reelFileName(slug, "subtitled", "mp4"));
 
   try {
-    fs.writeFileSync(sourcePath, videoBuffer);
     const probe = await probeVideo(sourcePath);
 
     const words = reel.voiceover_alignment
@@ -181,13 +266,16 @@ export async function burnCaptions(
     await burnSubtitlesAndStripMetadata(sourcePath, assPath, outPath);
 
     await setCaptions(reelId, "success", outPath, null);
+    await advanceStatus(reelId, "captioned");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await setCaptions(reelId, "failed", null, message);
     throw err;
   } finally {
-    // Intermediate files aren't needed once burned; the source upload and
-    // extracted audio would otherwise pile up in the reel folder.
+    // Intermediate files aren't needed once burned; the extracted audio and
+    // ASS subtitle file would otherwise pile up in the reel folder. The
+    // uploaded source video is NOT deleted — a re-burn (e.g. after a failed
+    // attempt) depends on it still being there.
     for (const f of [wavPath, assPath]) {
       if (fs.existsSync(f)) fs.unlinkSync(f);
     }
@@ -265,6 +353,8 @@ export async function addManualReel(
         captions_status: "none",
         captions_video_path: null,
         captions_error: null,
+        source_video_path: null,
+        slug: null,
         status: "new",
         created_at: "",
         updated_at: "",

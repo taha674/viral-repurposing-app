@@ -55,9 +55,16 @@ a:hover {
 }
 
 .container {
-  max-width: 1000px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 24px;
+}
+
+/* Non-board pages (accounts, settings) stay a comfortable reading width
+   even though .container was widened for the kanban board. */
+.narrow {
+  max-width: 900px;
+  margin: 0 auto;
 }
 
 h1 {
@@ -196,4 +203,78 @@ th {
 
 .spacer {
   height: 8px;
+}
+
+/* --- Stage popup (modal) --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+  z-index: 100;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 720px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.modal-close:hover {
+  color: var(--text);
+}
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+}
+.modal-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* --- Word diff (Adaptation stage) --- */
+.diff-view {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  font-size: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.diff-delete {
+  color: var(--red);
+  text-decoration: line-through;
+  background: rgba(248, 81, 73, 0.12);
+}
+.diff-insert {
+  color: var(--green);
+  background: rgba(63, 185, 80, 0.12);
 }

@@ -126,9 +126,29 @@ async function ensureSchema(pool: Pool): Promise<void> {
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS captions_status TEXT NOT NULL DEFAULT 'none';
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS captions_video_path TEXT;
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS captions_error TEXT;
+
+    -- Kanban revamp (2026-08-23): the HeyGen upload is now its own stage
+    -- (before, burnCaptions() took the upload and burned in one call), and
+    -- every reel's files are named from a stable slug (lib/naming.ts)
+    -- instead of "{id}_{date}/voiceover.mp3".
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS source_video_path TEXT;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS slug TEXT;
   `);
 
   await seedAccounts(pool);
+  await backfillKanbanStatuses(pool);
+}
+
+// One-time backfill for reels that finished under the old single-page UI:
+// without this they'd resurface in the Audio column since "approved" used
+// to mean "done", and the "video"/"captioned" statuses didn't exist yet.
+// Idempotent (the WHERE clause only ever matches pre-revamp rows once) and
+// safe to re-run every process start.
+async function backfillKanbanStatuses(pool: Pool): Promise<void> {
+  await pool.query(
+    `UPDATE reels SET status = 'captioned'
+       WHERE status = 'approved' AND captions_status = 'success'`
+  );
 }
 
 // One-time seed of the tracked-account list. Idempotent: only runs when the
