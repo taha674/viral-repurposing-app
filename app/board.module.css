@@ -92,12 +92,19 @@
   gap: 8px;
 }
 
+/* Full-width hero image, not a small inline icon — reel cover thumbnails are
+   portrait (matches Instagram Reels' aspect ratio), and need to be big enough
+   to actually judge on-screen (e.g. talking-head format at a glance for
+   hashtag-discovered reels), not just confirm one exists. Bleeds to the
+   card's edges (negative margin cancels .card's padding) so it reads as a
+   real preview image, not a thumbnail floating in whitespace. */
 .cardThumb {
-  width: 28px;
-  height: 28px;
-  border-radius: 5px;
+  width: calc(100% + 24px);
+  margin: -10px -12px 0;
+  aspect-ratio: 9 / 16;
+  border-radius: 8px 8px 0 0;
   object-fit: cover;
-  flex-shrink: 0;
+  display: block;
 }
 
 .cardTitle {

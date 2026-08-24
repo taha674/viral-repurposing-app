@@ -123,13 +123,13 @@ export default function StageModal({
             <img
               src={reel.thumbnail_url}
               alt=""
-              width={40}
-              height={40}
+              width={72}
+              height={72}
               style={{
-                width: 40,
-                height: 40,
+                width: 72,
+                height: 72,
                 objectFit: "cover",
-                borderRadius: 6,
+                borderRadius: 8,
                 flexShrink: 0,
               }}
               onError={(e) => {

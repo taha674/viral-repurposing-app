@@ -74,18 +74,6 @@ export default function ScrapedStage({
   return (
     <>
       <div className="row" style={{ marginBottom: 8 }}>
-        {reel.thumbnail_url && (
-          <img
-            src={reel.thumbnail_url}
-            alt=""
-            width={28}
-            height={28}
-            style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 5 }}
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = "none";
-            }}
-          />
-        )}
         <span className="muted">
           {reel.views?.toLocaleString() ?? "—"} views · {reel.source} ·{" "}
           <span

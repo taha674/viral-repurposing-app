@@ -33,17 +33,17 @@ export default function ReelCard({
 
   return (
     <div className={styles.card} onClick={onOpen}>
+      {reel.thumbnail_url && (
+        <img
+          className={styles.cardThumb}
+          src={reel.thumbnail_url}
+          alt=""
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
+        />
+      )}
       <div className={styles.cardTop}>
-        {reel.thumbnail_url && (
-          <img
-            className={styles.cardThumb}
-            src={reel.thumbnail_url}
-            alt=""
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = "none";
-            }}
-          />
-        )}
         <div className={styles.cardTitle}>{title}</div>
       </div>
       <div className={styles.cardMeta}>
