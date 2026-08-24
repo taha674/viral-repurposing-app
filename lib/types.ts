@@ -79,6 +79,13 @@ export interface Reel {
   // Stable file-naming stem, minted once on accept. See lib/naming.ts.
   slug: string | null;
   status: ReelStatus;
+  // Status this reel was in right before it was rejected — lets restore put
+  // it back where it came from instead of always assuming Scraped. Null for
+  // reels that have never been rejected.
+  previous_status: ReelStatus | null;
+  // Small preview image captured from the scrape, if the actor returned one.
+  // Instagram's CDN URLs expire, so treat as best-effort — may 404.
+  thumbnail_url: string | null;
   created_at: string;
   updated_at: string;
 }

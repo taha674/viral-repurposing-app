@@ -28,6 +28,13 @@ export interface ScrapedReel {
   caption: string | null;
   transcript: string | null;
   ownerUsername: string | null;
+  // Cover/preview image, if the actor returned one. Field name isn't
+  // pinned down against the live schema the way the others are (see the
+  // module-level VERIFIED note) — `displayUrl` is the common field across
+  // Apify's Instagram actors, with a couple of fallbacks. Best-effort only:
+  // Instagram's CDN URLs are signed and expire, so the UI treats a broken
+  // thumbnail as "no thumbnail" rather than an error.
+  thumbnailUrl: string | null;
 }
 
 interface ActorItem {
@@ -54,6 +61,19 @@ function num(v: unknown): number | null {
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 }
 
+function thumbnailOf(item: ActorItem): string | null {
+  const images = item.images as unknown;
+  const fromImages =
+    Array.isArray(images) && typeof images[0] === "string" ? images[0] : null;
+  return (
+    (item.displayUrl as string) ??
+    (item.thumbnailUrl as string) ??
+    (item.coverUrl as string) ??
+    fromImages ??
+    null
+  );
+}
+
 function mapItem(item: ActorItem): ScrapedReel {
   const plays = num(item.videoPlayCount);
   const views = num(item.videoViewCount);
@@ -66,6 +86,7 @@ function mapItem(item: ActorItem): ScrapedReel {
     caption: (item.caption as string) ?? null,
     transcript: (item.transcript as string) ?? null,
     ownerUsername: (item.ownerUsername as string) ?? null,
+    thumbnailUrl: thumbnailOf(item),
   };
 }
 

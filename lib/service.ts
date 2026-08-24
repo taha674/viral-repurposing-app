@@ -82,15 +82,19 @@ export async function acceptReel(reelId: number): Promise<Reel> {
 }
 
 // --- Restore a reel from the Rejected or Done tray back onto the board ---
-// Reject only ever happens from the Scraped column, and Archive only ever
-// happens from the Subtitled column (see app/components/stages), so which
-// column to restore into is fully determined by which tray the reel is in —
-// no separate "status before rejecting" bookkeeping needed.
+// Reject can now happen from any column (2026-08-24), so restoring returns
+// the reel to previous_status — the column it was actually in right before
+// it got rejected (recorded by setStatus, see lib/reels.ts). Falls back to
+// the old Scraped-only inference for reels rejected before that column
+// existed. Archive only ever happens from the Subtitled column, so that
+// side stays a fixed target.
 export async function restoreReel(reelId: number): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
   if (reel.status === "rejected") {
-    const target = reel.transcript_status === "success" ? "transcribed" : "new";
+    const target =
+      reel.previous_status ??
+      (reel.transcript_status === "success" ? "transcribed" : "new");
     await advanceStatus(reelId, target);
   } else if (reel.status === "archived") {
     await advanceStatus(reelId, "captioned");
@@ -356,6 +360,8 @@ export async function addManualReel(
         source_video_path: null,
         slug: null,
         status: "new",
+        previous_status: null,
+        thumbnail_url: scraped?.thumbnailUrl ?? null,
         created_at: "",
         updated_at: "",
       },
@@ -373,6 +379,7 @@ export async function addManualReel(
     source: "manual",
     transcript: scraped?.transcript ?? null,
     transcript_status: scraped?.transcript ? "success" : "failed",
+    thumbnail_url: scraped?.thumbnailUrl ?? null,
   });
 
   return {
@@ -425,6 +432,7 @@ export async function runScan(): Promise<ScanSummary> {
           shortcode: r.shortcode,
           views: r.views,
           source: "weekly_scan",
+          thumbnail_url: r.thumbnailUrl,
         });
         // insertReel dedupes: only pull transcript for genuinely new reels
         // that don't yet have one (avoids paying the transcript charge twice).

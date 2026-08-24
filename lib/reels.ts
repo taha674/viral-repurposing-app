@@ -44,7 +44,8 @@ const SUMMARY_COLUMNS = `
   transcript_status, adapted_script, red_line_flag, red_line_reason,
   voiceover_status, voiceover_path, voiceover_error,
   captions_status, captions_video_path, captions_error,
-  source_video_path, slug, status, created_at, updated_at,
+  source_video_path, slug, status, previous_status, thumbnail_url,
+  created_at, updated_at,
   (transcript IS NOT NULL) AS has_transcript,
   LEFT(transcript, 200) AS transcript_excerpt
 `;
@@ -98,6 +99,7 @@ export interface NewReel {
   source: ReelSource;
   transcript?: string | null;
   transcript_status?: TranscriptStatus;
+  thumbnail_url?: string | null;
 }
 
 // Insert a reel. Returns the existing row if the shortcode is already present
@@ -111,8 +113,8 @@ export async function insertReel(r: NewReel): Promise<Reel> {
   }
   const { rows } = await pool.query<Reel>(
     `INSERT INTO reels
-      (account_id, url, shortcode, views, source, transcript, transcript_status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+      (account_id, url, shortcode, views, source, transcript, transcript_status, thumbnail_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
     [
       r.account_id ?? null,
@@ -122,6 +124,7 @@ export async function insertReel(r: NewReel): Promise<Reel> {
       r.source,
       r.transcript ?? null,
       r.transcript_status ?? "pending",
+      r.thumbnail_url ?? null,
     ]
   );
   const id = rows[0].id;
@@ -263,12 +266,26 @@ export async function updateEditable(
 // flag untouched — those moves don't represent the operator resolving it.
 export async function setStatus(id: number, status: ReelStatus): Promise<void> {
   const pool = await getPool();
-  await pool.query(
-    `UPDATE reels
-       SET status = $1, red_line_flag = 'none', red_line_reason = NULL
-     WHERE id = $2`,
-    [status, id]
-  );
+  if (status === "rejected") {
+    // Remember what the reel's status was right before the reject, so
+    // restoreReel() can send it back to that same column instead of always
+    // assuming Scraped. `status` on the right-hand side reads the pre-update
+    // row value — this is one atomic UPDATE, not a read-then-write race.
+    await pool.query(
+      `UPDATE reels
+         SET previous_status = status, status = $1,
+             red_line_flag = 'none', red_line_reason = NULL
+       WHERE id = $2`,
+      [status, id]
+    );
+  } else {
+    await pool.query(
+      `UPDATE reels
+         SET status = $1, red_line_flag = 'none', red_line_reason = NULL
+       WHERE id = $2`,
+      [status, id]
+    );
+  }
   await touch(id);
 }
 

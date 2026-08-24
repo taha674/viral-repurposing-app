@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Reel, Analysis } from "@/lib/types";
-import { stageOf } from "@/lib/stages";
+import { stageOf, previousStage, backTargetStatus, STAGES } from "@/lib/stages";
+import type { Stage } from "@/lib/stages";
 import type { StageProps } from "./stageTypes";
 import ScrapedStage from "./stages/ScrapedStage";
 import ScriptStage from "./stages/ScriptStage";
@@ -53,6 +54,55 @@ export default function StageModal({
   const stage = stageOf(reel);
   const title = reel.slug ?? reel.shortcode ?? `Reel ${reel.id}`;
 
+  // Reject and Move back are available from any working stage except
+  // Scraped, which already has its own Accept/Reject pair (see
+  // ScrapedStage) and has no earlier column to move back to.
+  const isWorkingStage = STAGES.some((s) => s.id === stage);
+  const showBoardNav = isWorkingStage && stage !== "scraped";
+  const prevStage: Stage | null = showBoardNav
+    ? previousStage(stage as Stage)
+    : null;
+  const prevTitle = prevStage
+    ? STAGES.find((s) => s.id === prevStage)?.title
+    : null;
+
+  async function reject() {
+    setErr("");
+    setBusy("reject");
+    const res = await fetch(`/api/reels/${reel!.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "rejected" }),
+    });
+    setBusy("");
+    if (!res.ok) {
+      setErr((await res.json()).error ?? "Failed to reject");
+      return;
+    }
+    onBoardChange();
+    onClose();
+  }
+
+  async function moveBack() {
+    if (!reel) return;
+    const target = backTargetStatus(reel, stage as Stage);
+    if (!target) return;
+    setErr("");
+    setBusy("back");
+    const res = await fetch(`/api/reels/${reel.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: target }),
+    });
+    setBusy("");
+    if (!res.ok) {
+      setErr((await res.json()).error ?? "Failed to move back");
+      return;
+    }
+    await reload();
+    onBoardChange();
+  }
+
   const stageProps: StageProps = {
     reel,
     analysis,
@@ -69,6 +119,24 @@ export default function StageModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
+          {reel.thumbnail_url && (
+            <img
+              src={reel.thumbnail_url}
+              alt=""
+              width={40}
+              height={40}
+              style={{
+                width: 40,
+                height: 40,
+                objectFit: "cover",
+                borderRadius: 6,
+                flexShrink: 0,
+              }}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+            />
+          )}
           <div>
             <h2 style={{ margin: 0 }}>{title}</h2>
             <span className="muted">
@@ -96,6 +164,21 @@ export default function StageModal({
             </p>
           )}
         </div>
+        {showBoardNav && (
+          <div className="modal-footer" style={{ justifyContent: "space-between" }}>
+            <button
+              className="secondary"
+              onClick={moveBack}
+              disabled={busy === "back" || !prevStage}
+              title={prevTitle ? `Send this card back to ${prevTitle}` : undefined}
+            >
+              {busy === "back" ? "Moving…" : `← Move back to ${prevTitle}`}
+            </button>
+            <button className="danger" onClick={reject} disabled={busy === "reject"}>
+              {busy === "reject" ? "Rejecting…" : "Reject"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

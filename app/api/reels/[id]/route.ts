@@ -8,18 +8,22 @@ import {
 } from "@/lib/reels";
 import type { ReelStatus } from "@/lib/types";
 
-// The only status transitions this generic PATCH accepts from the client —
-// every other status ("new", "transcribed", "accepted", "adapted",
-// "captioned") is set server-side as the *result* of a specific action
-// (transcript pull, accept, adaptation, burn) via its own endpoint, not by
-// the client asserting an arbitrary status here.
+// The status transitions this generic PATCH accepts from the client.
+// "captioned" is still never client-settable — it's only ever the *result*
+// of a specific action (the subtitle burn) via its own endpoint.
 //
 // "approved" and "rejected" are the two genuine human-resolves-the-red-line
-// moments (adaptation -> approved, scraped -> rejected) and go through
-// setStatus, which clears red_line_flag/reason. "video" (audio -> video,
-// once the voiceover is ready) and "archived" (subtitled -> archived) are
-// plain board moves and go through advanceStatus, which does not.
+// moments (adaptation -> approved, any stage -> rejected) and go through
+// setStatus, which clears red_line_flag/reason. Everything else here is a
+// plain board move — forward ("video" for audio -> video) or the "Move
+// back"/reject-undo path back to an earlier column ("new"/"transcribed",
+// "accepted", "adapted", "approved", "video") — and goes through
+// advanceStatus, which leaves the flag untouched.
 const CLIENT_SETTABLE_STATUSES: ReelStatus[] = [
+  "new",
+  "transcribed",
+  "accepted",
+  "adapted",
   "approved",
   "rejected",
   "video",

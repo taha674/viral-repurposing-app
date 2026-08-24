@@ -67,3 +67,27 @@ export function stageOf(reel: Pick<Reel, "status">): Placement {
   }
   return stage;
 }
+
+// The column immediately to the left of `stage`, or null for Scraped (there
+// is nothing before it). Backs the "Move back" control in StageModal.
+export function previousStage(stage: Stage): Stage | null {
+  const idx = STAGES.findIndex((s) => s.id === stage);
+  if (idx <= 0) return null;
+  return STAGES[idx - 1].id;
+}
+
+// The status to set when moving a reel back one column. Scraped is the only
+// column with two statuses ("new" vs "transcribed"), so that case is
+// inferred from whether a transcript is already on record — same inference
+// restoreReel() uses for the Rejected-tray fallback.
+export function backTargetStatus(
+  reel: Pick<Reel, "transcript_status">,
+  stage: Stage
+): ReelStatus | null {
+  const prev = previousStage(stage);
+  if (!prev) return null;
+  if (prev === "scraped") {
+    return reel.transcript_status === "success" ? "transcribed" : "new";
+  }
+  return STAGES.find((s) => s.id === prev)!.statuses[0];
+}

@@ -133,6 +133,17 @@ async function ensureSchema(pool: Pool): Promise<void> {
     -- instead of "{id}_{date}/voiceover.mp3".
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS source_video_path TEXT;
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS slug TEXT;
+
+    -- Reject-from-any-stage / restore-to-origin (2026-08-24): remembers which
+    -- status a reel was in right before it got rejected, so restoring it from
+    -- the Rejected tray puts it back where it actually came from instead of
+    -- always assuming Scraped.
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS previous_status TEXT;
+
+    -- Small preview thumbnail (2026-08-24), captured from Apify's scrape
+    -- response when available. Instagram's CDN URLs are signed/expiring, so
+    -- this is best-effort — the UI hides the image if it 404s later.
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
   `);
 
   await seedAccounts(pool);
