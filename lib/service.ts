@@ -55,9 +55,9 @@ export async function retrieveTranscript(reelId: number): Promise<Reel> {
   try {
     const scraped = await fetchReel(reel.url);
     if (scraped?.transcript) {
-      await setTranscript(reelId, scraped.transcript, "success");
+      await setTranscript(reelId, scraped.transcript, "success", scraped.thumbnailUrl);
     } else {
-      await setTranscript(reelId, reel.transcript, "failed");
+      await setTranscript(reelId, reel.transcript, "failed", scraped?.thumbnailUrl);
     }
   } catch {
     await setTranscript(reelId, reel.transcript, "failed");

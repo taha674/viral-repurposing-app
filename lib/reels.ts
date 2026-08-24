@@ -147,13 +147,25 @@ async function touch(id: number): Promise<void> {
 export async function setTranscript(
   id: number,
   transcript: string | null,
-  status: TranscriptStatus
+  status: TranscriptStatus,
+  // Opportunistic backfill: a re-pull hits Apify again anyway, so if that
+  // response carries a thumbnail this reel didn't have yet (e.g. it was
+  // scraped before thumbnail capture existed), save it too. Never clobbers
+  // an existing thumbnail with null on a failed/thumbnail-less re-pull.
+  thumbnailUrl?: string | null
 ): Promise<void> {
   const pool = await getPool();
-  await pool.query(
-    "UPDATE reels SET transcript = $1, transcript_status = $2 WHERE id = $3",
-    [transcript, status, id]
-  );
+  if (thumbnailUrl) {
+    await pool.query(
+      "UPDATE reels SET transcript = $1, transcript_status = $2, thumbnail_url = $3 WHERE id = $4",
+      [transcript, status, thumbnailUrl, id]
+    );
+  } else {
+    await pool.query(
+      "UPDATE reels SET transcript = $1, transcript_status = $2 WHERE id = $3",
+      [transcript, status, id]
+    );
+  }
   // Advance status when a transcript first lands (don't regress later states).
   if (status === "success") {
     await pool.query(
