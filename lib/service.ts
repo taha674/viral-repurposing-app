@@ -7,9 +7,11 @@ const execFileAsync = promisify(execFile);
 import { config } from "./config";
 import { getPool } from "./db";
 import { listAccounts, markScanned } from "./accounts";
+import { listHashtags, markHashtagScanned } from "./hashtags";
 import {
   insertReel,
   getReel,
+  findByShortcode,
   setTranscript,
   setAdaptation,
   setVoiceover,
@@ -21,8 +23,8 @@ import {
   extractShortcode,
 } from "./reels";
 import { baseSlug, reelFileName } from "./naming";
-import { scanAccount, fetchReel } from "./apify";
-import { runAdaptation } from "./gemini";
+import { scanAccount, scanHashtag, fetchReel } from "./apify";
+import { runAdaptation, classifyTalkingHead } from "./gemini";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
 import {
   probeVideo,
@@ -338,6 +340,7 @@ export async function addManualReel(
       reel: {
         id: 0,
         account_id: null,
+        hashtag_id: null,
         platform: "instagram",
         url,
         shortcode: scraped?.shortcode ?? shortcode,
@@ -390,28 +393,33 @@ export async function addManualReel(
   };
 }
 
-// --- Weekly scan ---
+// --- Scan (weekly cron + "Run scan now", both discovery modes) ---
 export interface ScanSummary {
   scannedAccounts: number;
+  scannedHashtags: number;
   newReels: number;
   errors: number;
 }
 
-export async function runScan(): Promise<ScanSummary> {
+async function logScan(
+  accountId: number | null,
+  handle: string,
+  status: string,
+  message: string,
+  reelsFound: number
+): Promise<void> {
   const pool = await getPool();
-  const logScan = (
-    accountId: number,
-    handle: string,
-    status: string,
-    message: string,
-    reelsFound: number
-  ) =>
-    pool.query(
-      `INSERT INTO scan_logs (account_id, handle, status, message, reels_found)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [accountId, handle, status, message, reelsFound]
-    );
+  await pool.query(
+    `INSERT INTO scan_logs (account_id, handle, status, message, reels_found)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [accountId, handle, status, message, reelsFound]
+  );
+}
 
+// Tracked-account scan: cheap per-account sweep, qualify on views, pull a
+// transcript only for genuinely new reels. Unchanged from the original
+// single-mode runScan other than being split into its own function.
+async function scanTrackedAccounts(): Promise<{ count: number; newReels: number; errors: number }> {
   const accounts = (await listAccounts()).filter((a) => a.active === 1);
 
   let newReels = 0;
@@ -458,5 +466,99 @@ export async function runScan(): Promise<ScanSummary> {
     }
   }
 
-  return { scannedAccounts: accounts.length, newReels, errors };
+  return { count: accounts.length, newReels, errors };
+}
+
+// Hashtag discovery scan (2026-08-24). Three-stage funnel per hashtag, cheap
+// to expensive, mirroring the account scan's cheap-sweep-then-transcript
+// pattern:
+//   1. Cheap hashtag sweep (scanHashtag) — view counts + thumbnails only.
+//   2. View-count qualification (same VIEW_THRESHOLD as account scans),
+//      skipping anything already on record (by shortcode) before spending
+//      a Gemini call on it.
+//   3. Talking-head format classification on the thumbnail (Gemini vision) —
+//      only reels that read as "person on camera, upscale background" move
+//      on. Reels that don't qualify visually are neither inserted nor
+//      transcript-pulled, since the whole point is filtering OUT skits/other
+//      formats before the expensive per-reel transcript call.
+// A classification failure (bad thumbnail fetch, model error) skips just
+// that candidate — same "fail loud but don't abort the batch" pattern as the
+// account scan's per-account try/catch, since one broken thumbnail shouldn't
+// sink the rest of the hashtag's results.
+async function scanTrackedHashtags(): Promise<{ count: number; newReels: number; errors: number }> {
+  const hashtags = (await listHashtags()).filter((h) => h.active === 1);
+
+  let newReels = 0;
+  let errors = 0;
+
+  for (const hashtag of hashtags) {
+    try {
+      const scraped = await scanHashtag(hashtag.tag);
+      const qualifying = scraped.filter(
+        (r) => r.views !== null && r.views >= config.viewThreshold && r.url
+      );
+
+      let foundForHashtag = 0;
+      let skippedFormat = 0;
+      for (const r of qualifying) {
+        const shortcode = r.shortcode ?? extractShortcode(r.url);
+        if (shortcode && (await findByShortcode(shortcode))) continue; // already on record
+
+        if (!r.thumbnailUrl) {
+          skippedFormat += 1;
+          continue; // can't classify format without a thumbnail
+        }
+        try {
+          const classification = await classifyTalkingHead(r.thumbnailUrl);
+          if (!classification.isTalkingHead) {
+            skippedFormat += 1;
+            continue;
+          }
+        } catch {
+          skippedFormat += 1;
+          continue;
+        }
+
+        const reel = await insertReel({
+          hashtag_id: hashtag.id,
+          url: r.url,
+          shortcode: r.shortcode,
+          views: r.views,
+          source: "hashtag_scan",
+          thumbnail_url: r.thumbnailUrl,
+        });
+        if (reel.transcript_status === "pending" && !reel.transcript) {
+          foundForHashtag += 1;
+          await retrieveTranscript(reel.id);
+        }
+      }
+
+      await markHashtagScanned(hashtag.id, foundForHashtag);
+      newReels += foundForHashtag;
+      await logScan(
+        null,
+        `#${hashtag.tag}`,
+        "ok",
+        `${qualifying.length} qualifying, ${skippedFormat} not talking-head, ${foundForHashtag} new`,
+        foundForHashtag
+      );
+    } catch (err) {
+      errors += 1;
+      const message = err instanceof Error ? err.message : String(err);
+      await logScan(null, `#${hashtag.tag}`, "error", message, 0);
+    }
+  }
+
+  return { count: hashtags.length, newReels, errors };
+}
+
+export async function runScan(): Promise<ScanSummary> {
+  const accountResult = await scanTrackedAccounts();
+  const hashtagResult = await scanTrackedHashtags();
+  return {
+    scannedAccounts: accountResult.count,
+    scannedHashtags: hashtagResult.count,
+    newReels: accountResult.newReels + hashtagResult.newReels,
+    errors: accountResult.errors + hashtagResult.errors,
+  };
 }

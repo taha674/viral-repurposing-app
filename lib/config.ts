@@ -23,6 +23,12 @@ export const config = {
   // Apify
   apifyToken: process.env.APIFY_TOKEN ?? "",
   apifyActor: process.env.APIFY_INSTAGRAM_ACTOR ?? "apify/instagram-reel-scraper",
+  // Hashtag discovery actor (2026-08-24) — separate actor from the per-account
+  // reel scraper above. Input/output schema confirmed against Apify's published
+  // docs (apify.com/apify/instagram-hashtag-scraper), NOT live-verified against
+  // a real run the way apifyActor was — see the module-level note in apify.ts.
+  apifyHashtagActor:
+    process.env.APIFY_INSTAGRAM_HASHTAG_ACTOR ?? "apify/instagram-hashtag-scraper",
 
   // Gemini (adaptation step)
   geminiKey: process.env.GEMINI_API_KEY ?? "",
@@ -60,6 +66,10 @@ export const config = {
   // Tunables
   viewThreshold: intEnv("VIEW_THRESHOLD", 1_000_000),
   scanPostsPerAccount: intEnv("SCAN_POSTS_PER_ACCOUNT", 20),
+  // Top reels pulled per hashtag during a hashtag scan (before the view-count
+  // and talking-head filters run) — separate knob since hashtag volume/noise
+  // is very different from a tracked account's own post history.
+  scanPostsPerHashtag: intEnv("SCAN_POSTS_PER_HASHTAG", 30),
   // Which Apify field counts as "views" for the threshold. Instagram's public
   // reel "views" number maps to plays, so playCount is the default;
   // videoViewCount runs roughly 2x lower on the same reel.

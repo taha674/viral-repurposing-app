@@ -40,7 +40,7 @@ export async function listReels(status?: ReelStatus): Promise<Reel[]> {
 // computed in SQL instead of shipping the whole thing. The stage popup
 // fetches the full Reel separately via GET /api/reels/[id] when opened.
 const SUMMARY_COLUMNS = `
-  id, account_id, platform, url, shortcode, views, date_found, source,
+  id, account_id, hashtag_id, platform, url, shortcode, views, date_found, source,
   transcript_status, adapted_script, red_line_flag, red_line_reason,
   voiceover_status, voiceover_path, voiceover_error,
   captions_status, captions_video_path, captions_error,
@@ -93,6 +93,7 @@ export async function findBySlug(
 
 export interface NewReel {
   account_id?: number | null;
+  hashtag_id?: number | null;
   url: string;
   shortcode?: string | null;
   views?: number | null;
@@ -113,11 +114,12 @@ export async function insertReel(r: NewReel): Promise<Reel> {
   }
   const { rows } = await pool.query<Reel>(
     `INSERT INTO reels
-      (account_id, url, shortcode, views, source, transcript, transcript_status, thumbnail_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      (account_id, hashtag_id, url, shortcode, views, source, transcript, transcript_status, thumbnail_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
     [
       r.account_id ?? null,
+      r.hashtag_id ?? null,
       r.url,
       shortcode ?? null,
       r.views ?? null,

@@ -44,7 +44,7 @@ export default function BoardToolbar({
     }
     const s = data.summary;
     setScanMsg(
-      `Scanned ${s.scannedAccounts} accounts · ${s.newReels} new reels · ${s.errors} errors.`
+      `Scanned ${s.scannedAccounts} accounts + ${s.scannedHashtags} hashtags · ${s.newReels} new reels · ${s.errors} errors.`
     );
     onScanned();
   }
@@ -77,7 +77,7 @@ export default function BoardToolbar({
               <thead>
                 <tr>
                   <th>When</th>
-                  <th>Account</th>
+                  <th>Source</th>
                   <th>Status</th>
                   <th>Reels found</th>
                   <th>Message</th>

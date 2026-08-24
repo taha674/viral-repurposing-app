@@ -2,7 +2,7 @@
 // Platform is instagram-only for the MVP (TikTok deferred).
 
 export type Platform = "instagram";
-export type ReelSource = "weekly_scan" | "manual";
+export type ReelSource = "weekly_scan" | "manual" | "hashtag_scan";
 export type TranscriptStatus = "pending" | "success" | "failed";
 export type RedLineFlag = "none" | "needs_review" | "rejected";
 export type VoiceoverStatus = "none" | "generating" | "success" | "failed";
@@ -41,6 +41,18 @@ export interface TrackedAccount {
   created_at: string;
 }
 
+// Hashtag-based discovery (2026-08-24): a second discovery mode alongside
+// tracked accounts. Same lifecycle shape (active/pause, last scan, running
+// found-count) so it reuses the account scan's UI and scan patterns.
+export interface TrackedHashtag {
+  id: number;
+  tag: string; // stored without the leading '#'
+  active: number; // 0/1, mirrors TrackedAccount
+  last_scanned_at: string | null;
+  reels_found_count: number;
+  created_at: string;
+}
+
 // Structural breakdown of the SOURCE reel (analysis), matching the CSV format.
 export interface Analysis {
   hook: string;
@@ -54,6 +66,9 @@ export interface Analysis {
 export interface Reel {
   id: number;
   account_id: number | null;
+  // Which tracked hashtag surfaced this reel, when source is "hashtag_scan".
+  // Null for account-scan and manual reels.
+  hashtag_id: number | null;
   platform: Platform;
   url: string;
   shortcode: string | null; // used for dedupe

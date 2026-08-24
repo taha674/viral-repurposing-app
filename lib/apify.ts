@@ -90,13 +90,14 @@ function mapItem(item: ActorItem): ScrapedReel {
   };
 }
 
-// Runs the actor and returns mapped items. Throws on actor-reported errors
-// (blocked / private / empty) even though the run itself "SUCCEEDED".
+// Runs the given actor and returns mapped items. Throws on actor-reported
+// errors (blocked / private / empty) even though the run itself "SUCCEEDED".
 async function runActor(
+  actorId: string,
   input: Record<string, unknown>
 ): Promise<ScrapedReel[]> {
   const c = client();
-  const run = await c.actor(config.apifyActor).call(input);
+  const run = await c.actor(actorId).call(input);
   const { items } = await c.dataset(run.defaultDatasetId).listItems();
   const rows = items as ActorItem[];
 
@@ -137,13 +138,13 @@ export async function scanAccount(handle: string): Promise<ScrapedReel[]> {
     skipPinnedPosts: true,
     skipTrialReels: true,
   };
-  return runActor(input);
+  return runActor(config.apifyActor, input);
 }
 
 // Single reel by URL, with transcript ON (per-minute charge — qualifiers only).
 // Note: the reel URL goes in `username`; the actor accepts URLs there.
 export async function fetchReel(url: string): Promise<ScrapedReel | null> {
-  const rows = await runActor({
+  const rows = await runActor(config.apifyActor, {
     username: [url],
     resultsLimit: 1,
     includeTranscript: true,
@@ -151,4 +152,31 @@ export async function fetchReel(url: string): Promise<ScrapedReel | null> {
     includeSharesCount: false,
   });
   return rows[0] ?? null;
+}
+
+// Hashtag discovery scan (2026-08-24, apify/instagram-hashtag-scraper).
+//
+// NOT live-verified the way apifyActor above is — this is built against
+// Apify's published input/output schema docs, not a confirmed real run.
+// Schema: input `{ hashtags: string[], resultsType: "reels" | "posts",
+// resultsLimit }`; output fields for resultsType "reels" documented as
+// shortCode, url, type, caption, timestamp, likesCount, commentsCount,
+// sharesCount, videoPlayCount, videoViewCount, ownerUsername, ownerFullName,
+// ownerId, displayUrl, videoUrl, videoDuration — the view/thumbnail/owner
+// field names line up with the reel-scraper's ActorItem shape above, so
+// mapItem() is reused as-is. `resultsType: "reels"` means every row
+// returned is already video content — no separate photo/carousel filter
+// needed on our end.
+//
+// Cheap sweep only (mirrors scanAccount): no transcript field exists on this
+// actor's output at all — a qualifying, format-matching candidate still goes
+// through fetchReel() afterwards for the transcript, exactly like an
+// account-scan qualifier does.
+export async function scanHashtag(tag: string): Promise<ScrapedReel[]> {
+  const input: Record<string, unknown> = {
+    hashtags: [tag],
+    resultsType: "reels",
+    resultsLimit: config.scanPostsPerHashtag,
+  };
+  return runActor(config.apifyHashtagActor, input);
 }

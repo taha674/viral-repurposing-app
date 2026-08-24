@@ -31,6 +31,10 @@ const SEED_HANDLES = [
   "therajpatels",
 ];
 
+// Seed hashtags for hashtag-based discovery (2026-08-24). Taha starts with
+// these three; more are added from the Discovery Sources page as needed.
+const SEED_HASHTAGS = ["usa", "millionnaire", "wealth"];
+
 let _pool: Pool | null = null;
 let _ready: Promise<void> | null = null;
 
@@ -65,6 +69,15 @@ async function ensureSchema(pool: Pool): Promise<void> {
       id                SERIAL PRIMARY KEY,
       platform          TEXT NOT NULL DEFAULT 'instagram',
       handle            TEXT NOT NULL UNIQUE,
+      active            BOOLEAN NOT NULL DEFAULT TRUE,
+      last_scanned_at   TIMESTAMPTZ,
+      reels_found_count INTEGER NOT NULL DEFAULT 0,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS tracked_hashtags (
+      id                SERIAL PRIMARY KEY,
+      tag               TEXT NOT NULL UNIQUE,
       active            BOOLEAN NOT NULL DEFAULT TRUE,
       last_scanned_at   TIMESTAMPTZ,
       reels_found_count INTEGER NOT NULL DEFAULT 0,
@@ -144,9 +157,15 @@ async function ensureSchema(pool: Pool): Promise<void> {
     -- response when available. Instagram's CDN URLs are signed/expiring, so
     -- this is best-effort — the UI hides the image if it 404s later.
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
+
+    -- Hashtag-based discovery (2026-08-24): a second discovery mode alongside
+    -- tracked accounts, sharing the reels table and the scan_logs table
+    -- (hashtag scan_logs rows carry account_id NULL and handle = '#tag').
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS hashtag_id INTEGER REFERENCES tracked_hashtags(id) ON DELETE SET NULL;
   `);
 
   await seedAccounts(pool);
+  await seedHashtags(pool);
   await backfillKanbanStatuses(pool);
 }
 
@@ -177,6 +196,32 @@ async function seedAccounts(pool: Pool): Promise<void> {
       await client.query(
         "INSERT INTO tracked_accounts (platform, handle) VALUES ('instagram', $1)",
         [handle]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// One-time seed of the tracked-hashtag list. Idempotent: only runs when the
+// table is empty, so removing a hashtag in the UI won't resurrect it.
+async function seedHashtags(pool: Pool): Promise<void> {
+  const { rows } = await pool.query<{ n: string }>(
+    "SELECT COUNT(*) AS n FROM tracked_hashtags"
+  );
+  if (Number(rows[0].n) > 0) return;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const tag of SEED_HASHTAGS) {
+      await client.query(
+        "INSERT INTO tracked_hashtags (tag) VALUES ($1)",
+        [tag]
       );
     }
     await client.query("COMMIT");

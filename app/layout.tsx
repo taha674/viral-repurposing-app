@@ -21,7 +21,7 @@ export default function RootLayout({
           <div className="brand">Viral Repurposing</div>
           <nav>
             <Link href="/">Board</Link>
-            <Link href="/accounts">Tracked Accounts</Link>
+            <Link href="/discovery">Discovery Sources</Link>
             <Link href="/settings">Settings</Link>
           </nav>
           {hasAppPassword() && <LogoutButton />}
