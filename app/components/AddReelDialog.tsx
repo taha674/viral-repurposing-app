@@ -67,7 +67,7 @@ export default function AddReelDialog({
               className="secondary"
               onClick={() => addReel(true)}
               disabled={busy || !url.trim()}
-              title="Track even if under 1M views"
+              title="Track even if under the view threshold"
             >
               Force-add
             </button>

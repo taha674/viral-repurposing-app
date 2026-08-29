@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { listReelSummaries } from "@/lib/reels";
 import { addManualReel } from "@/lib/service";
+import { config } from "@/lib/config";
+
+function formatThreshold(n: number): string {
+  return n % 1_000_000 === 0
+    ? `${n / 1_000_000}M`
+    : n % 1_000 === 0
+      ? `${n / 1_000}K`
+      : String(n);
+}
 
 // Board payload: every reel, trimmed (see listReelSummaries — no transcript,
 // analysis, or voiceover_alignment). The board groups these into columns via
@@ -30,8 +39,9 @@ export async function POST(request: Request) {
         {
           qualifies: false,
           views: result.reel.views,
-          message:
-            "Below the 1M-view threshold. Re-submit with force=true to track it anyway.",
+          message: `Below the ${formatThreshold(
+            config.viewThreshold
+          )}-view threshold. Re-submit with force=true to track it anyway.`,
         },
         { status: 200 }
       );

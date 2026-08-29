@@ -15,8 +15,8 @@ export default function DiscoveryPage() {
         What the scan (on-demand and weekly) draws from. Tracked accounts are
         swept for their own recent posts; tracked hashtags are swept for
         top/recent reels matching the tag, filtered to the talking-head
-        format and the 1M+ view bar. Instagram only — TikTok is a later
-        phase.
+        format and the view-count bar (500K+). Instagram only — TikTok is a
+        later phase.
       </p>
 
       <AccountsSection />

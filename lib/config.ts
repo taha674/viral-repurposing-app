@@ -64,7 +64,7 @@ export const config = {
     : path.join(process.cwd(), "..", "..", "reels"),
 
   // Tunables
-  viewThreshold: intEnv("VIEW_THRESHOLD", 1_000_000),
+  viewThreshold: intEnv("VIEW_THRESHOLD", 500_000),
   scanPostsPerAccount: intEnv("SCAN_POSTS_PER_ACCOUNT", 20),
   // Top reels pulled per hashtag during a hashtag scan (before the view-count
   // and talking-head filters run) — separate knob since hashtag volume/noise
