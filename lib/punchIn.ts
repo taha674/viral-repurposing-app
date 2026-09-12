@@ -177,9 +177,24 @@ export function buildPunchSchedule(
       .filter((g) => g.t > beat.start + 0.25 && g.t < beat.end - 0.25)
       .sort((a, b) => a.t - b.t);
 
+    // How many punches this beat gets — 1, 2 or 3 — is what varies, and it
+    // varies with the beat's own content.
     const depth = Math.min(opts.maxLevel, inner.length);
+
+    // Every climb finishes at the TOP of the ladder; a short climb just gets
+    // there in fewer steps (0 -> 3, or 0 -> 2 -> 3, or 0 -> 1 -> 2 -> 3).
+    //
+    // The earlier version stepped 1,2,...,depth, so a one-punch beat only ever
+    // reached 1.08x and a two-punch beat 1.16x. Since most beats hold one or
+    // two phrase breaks, that left ~65% of the runtime at 1.00x or 1.08x —
+    // frequent re-frames between two near-identical framings, which reads as
+    // nothing happening. Measured: no parameter combination could push time
+    // at level 2+ above 33%, against 43% for the original fixed-depth cut.
+    // Varying the STEP COUNT while holding the destination keeps the "once,
+    // twice, thrice" rhythm and keeps the frame genuinely tight.
+    const startLevel = opts.maxLevel - depth + 1;
     for (let i = 0; i < depth; i++) {
-      level = i + 1;
+      level = startLevel + i;
       events.push({ t: snapToLine(inner[i].t, lines), level });
     }
     if (level !== 0 && beat.end < duration - 0.4) {

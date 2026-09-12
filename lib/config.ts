@@ -110,23 +110,23 @@ export const config = {
   // the subtitles, BEFORE them in the filter chain so captions don't scale.
   // Set PUNCH_IN=off to fall back to the plain subtitle burn.
   punchInEnabled: (process.env.PUNCH_IN ?? "on").toLowerCase() !== "off",
-  // Zoom added per level, as a fraction of the base frame. ~6-10% is the
-  // usable band for a talking head: below ~5% the punch is invisible on a
-  // phone, above ~12% a single step reads as a shove and pulls attention to
-  // the edit instead of the sentence.
-  punchInStep: floatEnv("PUNCH_IN_STEP", 0.08),
-  // Ceiling. This is set by RESOLUTION, not taste: a punch is a crop-and-
-  // upscale, so at level 3 (1.24x) only 871 of 1080 source pixels survive —
-  // 81% linear detail. HeyGen output is already a synthesised render with
-  // less true high-frequency detail than camera footage, so it tolerates
-  // upscaling worse, and CRF 20 veryfast won't rescue softness. A 4th level
-  // is not worth the mush.
+  // Zoom added per level, as a fraction of the base frame. 0.08 was too
+  // timid in practice — the re-frames were frequent but landed between two
+  // near-identical framings, so nothing read as a cut. 0.11 puts the top of
+  // the ladder at 1.33x, which still holds up: a punch is a crop-and-upscale,
+  // and at 1.33x you keep 75% of the source's linear detail, checked against
+  // a real HeyGen face crop.
+  punchInStep: floatEnv("PUNCH_IN_STEP", 0.11),
+  // Ceiling on the number of steps, not on the zoom itself. Every climb ends
+  // at this level; what varies is how many punches it takes to get there.
+  // Raising it past 3 costs resolution fast (at step 0.11, level 4 would be
+  // 1.44x = 69% linear detail on an already-synthesised render).
   punchInMaxLevel: intEnv("PUNCH_IN_MAX_LEVEL", 3),
   // A word gap this long counts as a phrase break. Derived from WORD
   // timings, not caption-line boundaries: layoutLines breaks on word count
   // and width far more often than on pauses, so its line gaps are mostly
   // zero and carry no rhythm. Word gaps carry the real delivery.
-  punchInMinGapSeconds: floatEnv("PUNCH_IN_MIN_GAP", 0.14),
+  punchInMinGapSeconds: floatEnv("PUNCH_IN_MIN_GAP", 0.10),
   // Beat boundaries are picked relative to THIS video's own pause
   // distribution — an absolute seconds threshold does not survive contact
   // with TTS audio, where every pause lands in a narrow 0.2-0.6s band.
@@ -141,8 +141,8 @@ export const config = {
   // distribution, and depth comes from beat content — but these absolute
   // values are a fit to a sample of one. Re-check them against a reel with a
   // noticeably different speaking rate before trusting them broadly.
-  punchInMinBeatSeconds: floatEnv("PUNCH_IN_MIN_BEAT", 5.5),
-  punchInMaxBeatSeconds: floatEnv("PUNCH_IN_MAX_BEAT", 12.0),
+  punchInMinBeatSeconds: floatEnv("PUNCH_IN_MIN_BEAT", 4.5),
+  punchInMaxBeatSeconds: floatEnv("PUNCH_IN_MAX_BEAT", 8.0),
   captionsTranscribeTimeoutMs: intEnv("CAPTIONS_TRANSCRIBE_TIMEOUT_MS", 180_000),
   captionsFfmpegTimeoutMs: intEnv("CAPTIONS_FFMPEG_TIMEOUT_MS", 180_000),
 } as const;
