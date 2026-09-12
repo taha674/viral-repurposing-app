@@ -26,6 +26,90 @@ const PROMPTS = {
 
 type PromptKey = keyof typeof PROMPTS;
 
+type VolumeInfo = {
+  formatted: string;
+  thresholdMb: number;
+  overThreshold: boolean;
+};
+
+// Storage panel: shows current usage on REELS_OUTPUT_DIR against the
+// auto-purge threshold, and a button to run that same check on demand
+// (useful right after archiving a batch, instead of waiting for the next
+// write to trigger it). See lib/service.ts#autoPurgeIfOverThreshold — this
+// only ever reclaims archived reels' folders and already-burned reels'
+// source videos, never active or undownloaded work.
+function StoragePanel() {
+  const [info, setInfo] = useState<VolumeInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings/volume");
+      const data = await res.json();
+      if (res.ok) setInfo(data);
+    } catch {
+      // Non-critical panel — a failed fetch just leaves it blank.
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function checkNow() {
+    setErr("");
+    setNote("");
+    setBusy(true);
+    const res = await fetch("/api/settings/volume", { method: "POST" });
+    const data = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setErr(data.error ?? "Purge check failed");
+      return;
+    }
+    const r = data.result as { ranPurge: boolean; deleted: unknown[] };
+    setNote(
+      r.ranPurge
+        ? `Freed ${data.freedFormatted} — ${r.deleted.length} item(s) removed.`
+        : "Already under the threshold — nothing to do."
+    );
+    await load();
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 24 }}>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+        <div>
+          <h2 style={{ marginBottom: 2 }}>Storage</h2>
+          {info && (
+            <span className="muted">
+              {info.formatted} on disk · {info.thresholdMb}MB threshold{" "}
+              {info.overThreshold ? (
+                <span className="badge red">over threshold</span>
+              ) : (
+                <span className="badge green">ok</span>
+              )}
+            </span>
+          )}
+        </div>
+        <button className="secondary" onClick={checkNow} disabled={busy}>
+          {busy ? "Checking…" : "Check now"}
+        </button>
+      </div>
+      <p className="muted">
+        Past the threshold, the app automatically reclaims archived
+        reels&rsquo; files and already-burned reels&rsquo; source videos
+        before its next voiceover, upload, or burn. It never touches an
+        active or not-yet-downloaded reel.
+      </p>
+      {note && <p className="ok">{note}</p>}
+      {err && <p className="error">{err}</p>}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [which, setWhich] = useState<PromptKey>("adaptation");
   const [prompt, setPrompt] = useState("");
@@ -161,6 +245,8 @@ export default function SettingsPage() {
         {msg && <p className="ok">{msg}</p>}
         {err && <p className="error">{err}</p>}
       </div>
+
+      <StoragePanel />
     </div>
   );
 }

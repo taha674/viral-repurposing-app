@@ -37,7 +37,7 @@ import {
   burnSubtitlesAndStripMetadata,
 } from "./ffmpeg";
 import { transcribeWavForWordTimings } from "./whisper";
-import { purgeReelFiles, formatBytes } from "./retention";
+import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } from "./retention";
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import { buildPunchSchedule, punchInFilter } from "./punchIn";
 import type { Reel, RedLineFlag, PublishPack } from "./types";
@@ -130,10 +130,134 @@ export async function restoreReel(reelId: number): Promise<Reel> {
   return (await getReel(reelId))!;
 }
 
+// --- Automatic threshold-triggered purge (2026-09-13) ---
+// Archiving (below) and the post-burn source delete (see burnCaptions)
+// only reclaim disk when the operator takes those actions. This is the
+// self-healing backstop: checked before every write that grows
+// REELS_OUTPUT_DIR, it reclaims the SAME two provably-dead categories the
+// manual scripts/purge-volume.mjs targets —  archived reels' whole folders,
+// and already-burned reels' now-unneeded source videos — whenever total
+// usage crosses config.volumePurgeThresholdMb.
+//
+// Deliberately not a wipe. An earlier version of this ask was "just
+// shutil.rmtree the whole reels directory past N MB" — that would delete a
+// mid-upload source, a not-yet-burned video, or a captioned output the
+// operator hasn't downloaded yet, none of which are safe to lose on a size
+// timer. If usage is still over the threshold after this runs, the
+// remainder is active/undelivered work by construction, and the honest
+// next step is resizing the volume or archiving/burning more reels — not
+// a deeper delete.
+export type AutoPurgeResult = {
+  ranPurge: boolean;
+  beforeBytes: number;
+  afterBytes: number;
+  freedBytes: number;
+  deleted: { kind: "archived" | "burned-source"; reelId: number; label: string }[];
+  stillOverThreshold: boolean;
+};
+
+// Every write path below calls this before it writes. Coalescing concurrent
+// callers into one in-flight pass avoids two uploads racing to delete the
+// same archived folder or burned source.
+let autoPurgeInFlight: Promise<AutoPurgeResult> | null = null;
+
+export async function autoPurgeIfOverThreshold(): Promise<AutoPurgeResult> {
+  if (!autoPurgeInFlight) {
+    autoPurgeInFlight = runAutoPurge().finally(() => {
+      autoPurgeInFlight = null;
+    });
+  }
+  return autoPurgeInFlight;
+}
+
+async function runAutoPurge(): Promise<AutoPurgeResult> {
+  const thresholdBytes = config.volumePurgeThresholdMb * 1024 * 1024;
+  const beforeBytes = outputDirSizeBytes();
+  if (beforeBytes <= thresholdBytes) {
+    return {
+      ranPurge: false,
+      beforeBytes,
+      afterBytes: beforeBytes,
+      freedBytes: 0,
+      deleted: [],
+      stillOverThreshold: false,
+    };
+  }
+
+  const pool = await getPool();
+  const deleted: AutoPurgeResult["deleted"] = [];
+  let freedBytes = 0;
+
+  const { rows: archivedRows } = await pool.query<{ id: number; slug: string }>(
+    "SELECT id, slug FROM reels WHERE status = 'archived' AND slug IS NOT NULL"
+  );
+  for (const row of archivedRows) {
+    const purged = purgeReelFiles(row.slug);
+    if (purged.existed) {
+      freedBytes += purged.bytes;
+      deleted.push({ kind: "archived", reelId: row.id, label: row.slug });
+      await clearMediaPaths(row.id);
+    }
+  }
+
+  const { rows: burnedRows } = await pool.query<{
+    id: number;
+    source_video_path: string;
+  }>(
+    `SELECT id, source_video_path FROM reels
+       WHERE captions_status = 'success' AND source_video_path IS NOT NULL
+         AND status != 'archived'`
+  );
+  for (const row of burnedRows) {
+    const bytes = deleteFileIfExists(row.source_video_path);
+    if (bytes > 0) {
+      freedBytes += bytes;
+      deleted.push({
+        kind: "burned-source",
+        reelId: row.id,
+        label: path.basename(row.source_video_path),
+      });
+      await clearSourceVideo(row.id);
+    }
+  }
+
+  const afterBytes = beforeBytes - freedBytes;
+  const stillOverThreshold = afterBytes > thresholdBytes;
+
+  console.log(
+    `[auto-purge] volume was ${formatBytes(beforeBytes)}, over the ` +
+      `${config.volumePurgeThresholdMb}MB threshold — freed ${formatBytes(freedBytes)} ` +
+      `from ${deleted.length} item(s), now ${formatBytes(afterBytes)}.` +
+      (stillOverThreshold
+        ? " Still over threshold — remaining usage is active/undelivered " +
+          "work; resize the volume or archive/burn more reels."
+        : "")
+  );
+
+  return { ranPurge: true, beforeBytes, afterBytes, freedBytes, deleted, stillOverThreshold };
+}
+
+// A purge failure should never block the actual paid/user-triggered action
+// it's guarding — it's maintenance, not a precondition. Every call site
+// below uses this wrapper instead of calling autoPurgeIfOverThreshold
+// directly, so a DB hiccup during the size check can't turn into a failed
+// voiceover/upload/burn.
+async function tryAutoPurge(context: string): Promise<void> {
+  try {
+    await autoPurgeIfOverThreshold();
+  } catch (err) {
+    console.warn(
+      `[auto-purge] check failed during ${context}: ` +
+        (err instanceof Error ? err.message : String(err))
+    );
+  }
+}
+
 // --- Archive a finished reel, reclaiming its disk (2026-09-12) ---
 // Archive is terminal for files: it deletes the reel's entire slug folder
 // from REELS_OUTPUT_DIR. This is the pipeline's only mechanism for
-// reclaiming volume space — without it every processed reel left ~63MB
+// reclaiming volume space on operator action — the automatic backstop above
+// covers the rest — without either, every processed reel left ~63MB
 // behind permanently and the Railway volume filled up, failing writes with
 // ENOSPC.
 //
@@ -351,6 +475,10 @@ export async function generateVoiceover(reelId: number): Promise<Reel> {
     throw new Error(message);
   }
 
+  // Checked before spending on ElevenLabs, not just before the write below —
+  // no point paying for a generation that then fails on disk.
+  await tryAutoPurge("generateVoiceover");
+
   // Recorded before the network call so a page refresh mid-generation shows
   // "generating" instead of silently reverting to the last known status.
   await setVoiceover(reelId, "generating", null, null);
@@ -390,6 +518,8 @@ export async function saveSourceVideo(
     throw new Error('Send this reel to the "Video" stage before uploading.');
   }
 
+  await tryAutoPurge("saveSourceVideo");
+
   const slug = await ensureSlug(reel);
   const dir = path.join(config.reelsOutputDir, slug);
   fs.mkdirSync(dir, { recursive: true });
@@ -421,6 +551,8 @@ export async function burnCaptions(reelId: number): Promise<Reel> {
   if (!reel.source_video_path) {
     throw new Error("No uploaded video found — upload one first.");
   }
+
+  await tryAutoPurge("burnCaptions");
 
   await setCaptions(reelId, "processing", null, null);
 
@@ -489,10 +621,12 @@ export async function burnCaptions(reelId: number): Promise<Reel> {
     //
     // Deleted only after setCaptions("success") lands: if the burn threw,
     // the catch below runs instead and the source survives for a retry.
+    // Same deleteFileIfExists() the auto-purge backstop uses for this exact
+    // category (see autoPurgeIfOverThreshold) — one path-safety check, not
+    // two copies of it.
     try {
-      if (fs.existsSync(sourcePath)) {
-        const freed = fs.statSync(sourcePath).size;
-        fs.unlinkSync(sourcePath);
+      const freed = deleteFileIfExists(sourcePath);
+      if (freed > 0) {
         await clearSourceVideo(reelId);
         console.log(
           `[burn] reel ${reelId} (${slug}) — deleted source video, freed ${formatBytes(freed)}`
@@ -515,9 +649,11 @@ export async function burnCaptions(reelId: number): Promise<Reel> {
     throw err;
   } finally {
     // Intermediate files aren't needed once burned; the extracted audio and
-    // ASS subtitle file would otherwise pile up in the reel folder. The
-    // uploaded source video is NOT deleted — a re-burn (e.g. after a failed
-    // attempt) depends on it still being there.
+    // ASS subtitle file would otherwise pile up in the reel folder. This
+    // block runs on both success and failure and never touches sourcePath —
+    // on failure it must survive for a retry, and on success its own
+    // deletion already happened above (conditionally, only once burning
+    // actually succeeded).
     for (const f of [wavPath, assPath]) {
       if (fs.existsSync(f)) fs.unlinkSync(f);
     }

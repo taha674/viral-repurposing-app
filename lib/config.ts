@@ -145,6 +145,16 @@ export const config = {
   punchInMaxBeatSeconds: floatEnv("PUNCH_IN_MAX_BEAT", 8.0),
   captionsTranscribeTimeoutMs: intEnv("CAPTIONS_TRANSCRIBE_TIMEOUT_MS", 180_000),
   captionsFfmpegTimeoutMs: intEnv("CAPTIONS_FFMPEG_TIMEOUT_MS", 180_000),
+
+  // Auto-purge threshold (2026-09-13). Checked before every write that grows
+  // REELS_OUTPUT_DIR (voiceover, source upload, burn) — see
+  // service.ts#autoPurgeIfOverThreshold. Deliberately narrow: crossing this
+  // only reclaims archived-reel folders and already-burned sources (the same
+  // two provably-dead categories scripts/purge-volume.mjs targets), never
+  // active or undownloaded work. If usage stays over the threshold after a
+  // purge, that's a signal to resize the volume or archive/burn more reels —
+  // not a reason to delete anything else.
+  volumePurgeThresholdMb: intEnv("VOLUME_PURGE_THRESHOLD_MB", 500),
 } as const;
 
 export function hasAppPassword(): boolean {
