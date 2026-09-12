@@ -7,6 +7,43 @@ export type TranscriptStatus = "pending" | "success" | "failed";
 export type RedLineFlag = "none" | "needs_review" | "rejected";
 export type VoiceoverStatus = "none" | "generating" | "success" | "failed";
 export type CaptionsStatus = "none" | "processing" | "success" | "failed";
+export type PublishPackStatus = "none" | "generating" | "success" | "failed";
+
+// How this reel should carry its text hook on the cover frame. Instagram
+// lets you pick any frame of the reel as the cover, so a frame that already
+// has a burnt-in subtitle line on it IS a text hook — the choice is whether
+// that's enough, whether a separate text sticker does it better, or whether
+// the two carry different halves of the hook.
+export type HookMode = "subtitle_only" | "sticker_only" | "subtitle_plus_sticker";
+
+// One candidate cover text, with the reasoning that makes it reviewable.
+// `why_not_clickbait` is not decoration: it's the satisfaction test ("will
+// someone who watches feel this was honest?"), which is the same judgement
+// as red lines 6 and 9, written down so the operator can check it.
+export interface ThumbnailOption {
+  text: string; // 2–5 words, uppercase
+  technique: string; // which curiosity mechanism it uses
+  why_not_clickbait: string; // how the video pays it off
+}
+
+// Suggested, human-editable post metadata. Never posted by this app — the
+// operator edits and chooses (see the caption/hashtag rule in CLAUDE.md).
+export interface PublishPack {
+  caption: string;
+  caption_rationale: string;
+  hashtags: string[]; // without the leading '#'
+  hashtags_rejected: string[]; // source tags deliberately dropped, reason inline
+  thumbnail_text: ThumbnailOption[];
+  hook_mode: HookMode;
+  hook_mode_reason: string;
+  // Timestamp of the frame to use as the cover, chosen from the real
+  // subtitle lines we computed and sent. Null when hook_mode is
+  // "sticker_only", or when the reel has no word timings yet.
+  cover_frame_seconds: number | null;
+  cover_frame_line: string | null;
+  red_line_flag: RedLineFlag;
+  red_line_reason: string;
+}
 
 // Character-level timing ElevenLabs returns from the with-timestamps
 // endpoint, alongside the audio, at no extra cost. Preferred source for
@@ -88,6 +125,16 @@ export interface Reel {
   captions_status: CaptionsStatus;
   captions_video_path: string | null;
   captions_error: string | null;
+  // The source post's own caption and hashtags, captured from the scrape.
+  // Null on every reel scraped before 2026-09-12 — there is no backfill, so
+  // consumers must handle their absence rather than assume them.
+  source_caption: string | null;
+  source_hashtags: string[] | null;
+  // Suggested caption / hashtags / cover text. Manually triggered and
+  // re-runnable, so it always reflects the current adapted_script.
+  publish_pack: PublishPack | null;
+  publish_pack_status: PublishPackStatus;
+  publish_pack_error: string | null;
   // The finished HeyGen/edited video the operator uploads before the burn.
   // Presence is the "video uploaded" signal — there is no separate status.
   source_video_path: string | null;
@@ -119,10 +166,17 @@ export interface ScanLog {
 // transcript, no analysis JSON, and above all no voiceover_alignment (three
 // parallel arrays with one entry per character — by far the largest column).
 // adapted_script stays because the Adaptation and Audio cards show an
-// excerpt of it. The stage popup fetches the full Reel via GET /api/reels/[id].
+// excerpt of it. source_caption and publish_pack are trimmed for the same
+// reason — both are prose-sized and only the stage popup renders them.
+// publish_pack_status stays, so a card can show a badge without the payload.
+// The stage popup fetches the full Reel via GET /api/reels/[id].
 export type ReelSummary = Omit<
   Reel,
-  "transcript" | "analysis" | "voiceover_alignment"
+  | "transcript"
+  | "analysis"
+  | "voiceover_alignment"
+  | "source_caption"
+  | "publish_pack"
 > & {
   // Kept so cards can still show a transcript badge/excerpt without shipping
   // the whole transcript to the browser.

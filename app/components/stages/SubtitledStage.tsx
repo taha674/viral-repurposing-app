@@ -1,19 +1,30 @@
 "use client";
 
 import type { StageProps } from "../stageTypes";
+import PublishPackPanel from "../PublishPackPanel";
 
-// Column 6 (Subtitled). The finished, metadata-stripped file. Archive is
-// the only action — it moves the card to the Done tray, not a further
-// pipeline step (this project doesn't automate the Instagram post itself).
-export default function SubtitledStage({
-  reel,
-  busy,
-  setBusy,
-  setErr,
-  onBoardChange,
-  onClose,
-}: StageProps) {
+// Column 6 (Subtitled). The finished, metadata-stripped file, plus the
+// publish pack — this is the moment the operator is actually about to post,
+// so the suggested caption/hashtags/cover hook belong here as well as back
+// at Adaptation. Archive is still the only pipeline action: this project
+// doesn't automate the Instagram post itself, it just hands you the pieces.
+export default function SubtitledStage(props: StageProps) {
+  const { reel, busy, setBusy, setErr, onBoardChange, onClose } = props;
+
   async function archive() {
+    // Archiving deletes this reel's entire folder from the volume — the
+    // finished video included (lib/retention.ts). That is the only thing
+    // reclaiming disk in this pipeline, but it makes Archive irreversible,
+    // so it gets a confirm naming exactly what goes.
+    const ok = window.confirm(
+      "Archive this reel?\n\n" +
+        "This permanently deletes its files from the server — the finished " +
+        "subtitled video, the uploaded source video, and the voiceover. " +
+        "Download anything you still need first.\n\n" +
+        "The script and publish pack are kept."
+    );
+    if (!ok) return;
+
     setErr("");
     setBusy("archive");
     const res = await fetch(`/api/reels/${reel.id}`, {
@@ -48,9 +59,11 @@ export default function SubtitledStage({
         </a>
       </div>
 
+      <PublishPackPanel {...props} />
+
       <div className="row" style={{ marginTop: 16 }}>
         <button onClick={archive} disabled={busy === "archive"}>
-          {busy === "archive" ? "Archiving…" : "Archive"}
+          {busy === "archive" ? "Archiving…" : "Archive (deletes files)"}
         </button>
       </div>
     </>

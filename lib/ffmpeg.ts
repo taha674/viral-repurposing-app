@@ -77,10 +77,25 @@ export async function extractAudioForTranscription(
 // in the same pass (project rule: every video the pipeline produces must be
 // metadata-stripped before it's "done"). Re-encodes video (subtitles are
 // burned pixels, not a track) but copies audio through untouched.
+//
+// `punchChain`, when given, is a -filter_complex graph (lib/punchIn.ts) that
+// applies the punch-in zoom and leaves the result on [punched].
+//
+// ORDER IS LOAD-BEARING: the zoom runs BEFORE ass. Burning subtitles first
+// and zooming after would scale the subtitles along with the frame — they'd
+// grow, drift off centre, and crop at the edges. Zooming first keeps the ASS
+// geometry (PlayResX/PlayResY from probeVideo, captionBaselineY, and the
+// WIDTH_CALIBRATION fudge in textLayout.ts) valid untouched, because the
+// punch-in preserves the output frame size exactly.
+//
+// Still a SINGLE re-encode either way, and audio is still `-c:a copy` — the
+// punch segments tile the timeline with no gaps, so duration and frame count
+// are unchanged and lip sync holds.
 export async function burnSubtitlesAndStripMetadata(
   videoPath: string,
   assPath: string,
-  outPath: string
+  outPath: string,
+  punchChain?: string | null
 ): Promise<void> {
   // ffmpeg's subtitles filter takes its path via a colon-delimited filter
   // string, so Windows-style colons/backslashes and single quotes need
@@ -88,14 +103,30 @@ export async function burnSubtitlesAndStripMetadata(
   // paths), but escape the characters ffmpeg's filter parser treats
   // specially regardless.
   const escapePath = (p: string) => p.replace(/([:\\'])/g, "\\$1");
+  const ass = `ass=${escapePath(assPath)}:fontsdir=${escapePath(FONTS_DIR)}`;
+
+  // Without a punch chain this is byte-for-byte the command that shipped
+  // before — one -vf, one filter. With one, the same ass filter is simply
+  // chained onto [punched] inside a -filter_complex.
+  const filterArgs = punchChain
+    ? [
+        "-filter_complex",
+        `${punchChain};[punched]${ass}[vout]`,
+        "-map",
+        "[vout]",
+        // `?` so a silent source video doesn't fail the whole burn.
+        "-map",
+        "0:a?",
+      ]
+    : ["-vf", ass];
+
   await execFileAsync(
     FFMPEG,
     [
       "-y",
       "-i",
       videoPath,
-      "-vf",
-      `ass=${escapePath(assPath)}:fontsdir=${escapePath(FONTS_DIR)}`,
+      ...filterArgs,
       "-map_metadata",
       "-1",
       "-map_chapters",

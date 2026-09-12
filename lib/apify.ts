@@ -26,6 +26,10 @@ export interface ScrapedReel {
   shortcode: string | null;
   views: number | null;
   caption: string | null;
+  // Hashtags carried on the source post, parsed out of `caption` (and unioned
+  // with the actor's own `hashtags` array when it emits one). Comes free with
+  // the scrape we already pay for — see parseHashtags below.
+  hashtags: string[];
   transcript: string | null;
   ownerUsername: string | null;
   // Cover/preview image, if the actor returned one. Field name isn't
@@ -74,6 +78,62 @@ function thumbnailOf(item: ActorItem): string | null {
   );
 }
 
+// Hashtags on the source post. Instagram tags allow unicode letters, digits
+// and underscore (no hyphens, no periods), so the class is deliberately
+// narrower than \w plus \p{L}/\p{N} — `#wealth.tips` is the tag "#wealth",
+// not "#wealth.tips". Returned WITHOUT the leading '#', de-duped
+// case-insensitively (Instagram treats #Wealth and #wealth as one tag) while
+// preserving the casing of the first occurrence for display.
+export function parseHashtags(caption: string | null | undefined): string[] {
+  if (!caption) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of caption.matchAll(/#([\p{L}\p{N}_]+)/gu)) {
+    const tag = m[1];
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out;
+}
+
+// The caption with its hashtags removed — the prose half, for feeding to a
+// model that gets the tag list separately. Collapses the whitespace the
+// removal leaves behind (tag blocks are usually a trailing run of lines).
+export function captionBody(caption: string | null | undefined): string | null {
+  if (!caption) return null;
+  const body = caption
+    .replace(/#[\p{L}\p{N}_]+/gu, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .join("\n")
+    .trim();
+  return body || null;
+}
+
+// Union of the tags parsed from the caption and any the actor supplies
+// directly. Neither actor is documented to emit a `hashtags` field, but if
+// one starts to, taking it costs nothing and is more reliable than parsing.
+function hashtagsOf(item: ActorItem): string[] {
+  const caption = (item.caption as string) ?? null;
+  const fromCaption = parseHashtags(caption);
+  const raw = item.hashtags;
+  if (!Array.isArray(raw)) return fromCaption;
+  const seen = new Set(fromCaption.map((t) => t.toLowerCase()));
+  const out = [...fromCaption];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const tag = entry.replace(/^#/, "").trim();
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase());
+    out.push(tag);
+  }
+  return out;
+}
+
 function mapItem(item: ActorItem): ScrapedReel {
   const plays = num(item.videoPlayCount);
   const views = num(item.videoViewCount);
@@ -84,6 +144,7 @@ function mapItem(item: ActorItem): ScrapedReel {
     views:
       config.viewMetric === "viewCount" ? (views ?? plays) : (plays ?? views),
     caption: (item.caption as string) ?? null,
+    hashtags: hashtagsOf(item),
     transcript: (item.transcript as string) ?? null,
     ownerUsername: (item.ownerUsername as string) ?? null,
     thumbnailUrl: thumbnailOf(item),

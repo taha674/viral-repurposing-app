@@ -6,6 +6,13 @@ import {
   ADAPTATION_SCHEMA,
   type AdaptationResult,
 } from "./prompt";
+import {
+  getEffectivePublishSystemPrompt,
+  buildPublishUserMessage,
+  PUBLISH_PACK_SCHEMA,
+  type PublishPackInput,
+  type PublishPackResult,
+} from "./publishPrompt";
 
 // Finish reasons that mean the model refused / was blocked rather than answered.
 // Treated as fail-loud: a human reviews the source instead of us retrying.
@@ -27,7 +34,16 @@ function isRetryable(err: unknown): boolean {
   return /\b(429|5\d\d)\b|ECONNRESET|ETIMEDOUT|fetch failed/i.test(message);
 }
 
-function extractResult(response: GenerateContentResponse): AdaptationResult {
+// Refusal / truncation / empty-output guards, shared by every structured
+// call. Fail-loud in all three cases: a human reviews the source rather than
+// us retrying (a refusal is deterministic, and a retry just burns quota).
+// `label` names the call and `tokenEnvVar` the knob to raise, so the operator
+// gets an actionable message instead of a generic one.
+function parseStructured<T>(
+  response: GenerateContentResponse,
+  label: string,
+  tokenEnvVar: string
+): T {
   const blockReason = response.promptFeedback?.blockReason;
   if (blockReason) {
     throw new Error(
@@ -44,20 +60,28 @@ function extractResult(response: GenerateContentResponse): AdaptationResult {
   }
   if (finishReason === "MAX_TOKENS") {
     throw new Error(
-      "Adaptation output was truncated (hit maxOutputTokens). Raise ADAPT_MAX_OUTPUT_TOKENS."
+      `${label} output was truncated (hit maxOutputTokens). Raise ${tokenEnvVar}.`
     );
   }
 
   const text = response.text?.trim();
-  if (!text) throw new Error("Adaptation returned no text output.");
+  if (!text) throw new Error(`${label} returned no text output.`);
 
   try {
-    return JSON.parse(text) as AdaptationResult;
+    return JSON.parse(text) as T;
   } catch {
     throw new Error(
-      "Adaptation output was not valid JSON. Raw output: " + text.slice(0, 300)
+      `${label} output was not valid JSON. Raw output: ` + text.slice(0, 300)
     );
   }
+}
+
+function extractResult(response: GenerateContentResponse): AdaptationResult {
+  return parseStructured<AdaptationResult>(
+    response,
+    "Adaptation",
+    "ADAPT_MAX_OUTPUT_TOKENS"
+  );
 }
 
 // Runs the red-line-compliance adaptation prompt against Gemini.
@@ -105,6 +129,61 @@ export async function runAdaptation(
 
   const detail = lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(`Adaptation failed after ${attempts} attempt(s): ${detail}`);
+}
+
+// --- Publish pack: caption / hashtags / cover text hook (2026-09-12) ---
+//
+// A SECOND, independent call rather than extra fields on runAdaptation —
+// see the header of lib/publishPrompt.ts for why (token ceiling + the
+// custom-prompt override trap). Same hard cap, same fail-loud handling, same
+// thinkingBudget 0: this is scoped writing against an explicit rubric, not a
+// reasoning task.
+//
+// Manually triggered only (service.ts#generatePublishPack is reachable from
+// a button, never from the scan loop), so a paid call can't fire unattended.
+export async function runPublishPack(
+  input: PublishPackInput
+): Promise<PublishPackResult> {
+  if (!hasGemini()) {
+    throw new Error(
+      "GEMINI_API_KEY is not set. Add it to .env.local to generate a publish pack."
+    );
+  }
+  if (!input.adaptedScript.trim()) {
+    throw new Error("Cannot write a publish pack for an empty script.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey: config.geminiKey });
+  const attempts = Math.max(1, config.geminiMaxRetries + 1);
+  const systemInstruction = await getEffectivePublishSystemPrompt();
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: config.geminiModel,
+        contents: buildPublishUserMessage(input),
+        config: {
+          systemInstruction,
+          maxOutputTokens: config.publishPackMaxOutputTokens,
+          thinkingConfig: { thinkingBudget: 0 },
+          responseMimeType: "application/json",
+          responseJsonSchema: PUBLISH_PACK_SCHEMA,
+        },
+      });
+      return parseStructured<PublishPackResult>(
+        response,
+        "Publish pack",
+        "PUBLISH_PACK_MAX_OUTPUT_TOKENS"
+      );
+    } catch (err) {
+      lastError = err;
+      if (!isRetryable(err) || attempt === attempts - 1) break;
+    }
+  }
+
+  const detail = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`Publish pack failed after ${attempts} attempt(s): ${detail}`);
 }
 
 // --- Talking-head format classifier (hashtag discovery, 2026-08-24) ---

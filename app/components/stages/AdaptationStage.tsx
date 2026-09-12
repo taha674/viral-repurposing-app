@@ -4,21 +4,17 @@ import { useState } from "react";
 import type { StageProps } from "../stageTypes";
 import { FlagBadge } from "../Badges";
 import DiffView from "../DiffView";
+import PublishPackPanel from "../PublishPackPanel";
 
 // Column 3 (Adaptation). Diff-first: the color-coded transcript -> adapted
 // script diff is the primary view, with an Edit toggle for hand-tweaking
 // before Approve — same edit capability the pre-board UI had, just not
 // shown by default since the diff is what needs reviewing.
-export default function AdaptationStage({
-  reel,
-  analysis,
-  busy,
-  setBusy,
-  setErr,
-  reload,
-  onBoardChange,
-  onClose,
-}: StageProps) {
+export default function AdaptationStage(props: StageProps) {
+  // Kept as one object as well as destructured fields: PublishPackPanel
+  // takes the same StageProps contract, so it gets the whole thing.
+  const { reel, analysis, busy, setBusy, setErr, reload, onBoardChange, onClose } =
+    props;
   const [editing, setEditing] = useState(false);
   const [script, setScript] = useState(reel.adapted_script ?? "");
 
@@ -132,6 +128,8 @@ export default function AdaptationStage({
           Copy script
         </button>
       </div>
+
+      <PublishPackPanel {...props} />
     </>
   );
 }

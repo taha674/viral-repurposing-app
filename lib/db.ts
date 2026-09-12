@@ -106,6 +106,11 @@ async function ensureSchema(pool: Pool): Promise<void> {
       captions_status   TEXT NOT NULL DEFAULT 'none',
       captions_video_path TEXT,
       captions_error    TEXT,
+      source_caption    TEXT,
+      source_hashtags   JSONB,
+      publish_pack      JSONB,
+      publish_pack_status TEXT NOT NULL DEFAULT 'none',
+      publish_pack_error  TEXT,
       status            TEXT NOT NULL DEFAULT 'new',
       created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -162,6 +167,17 @@ async function ensureSchema(pool: Pool): Promise<void> {
     -- tracked accounts, sharing the reels table and the scan_logs table
     -- (hashtag scan_logs rows carry account_id NULL and handle = '#tag').
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS hashtag_id INTEGER REFERENCES tracked_hashtags(id) ON DELETE SET NULL;
+
+    -- Publish pack (2026-09-12): the source post's own caption + hashtags,
+    -- captured from the scrape response we already pay for, and the
+    -- red-line-filtered caption/hashtag/cover-text suggestions generated
+    -- from them. source_caption/source_hashtags are populated on NEW scrapes
+    -- only — pre-existing rows stay NULL, and every consumer handles that.
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS source_caption TEXT;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS source_hashtags JSONB;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS publish_pack JSONB;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS publish_pack_status TEXT NOT NULL DEFAULT 'none';
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS publish_pack_error TEXT;
   `);
 
   await seedAccounts(pool);

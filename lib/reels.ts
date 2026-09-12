@@ -10,6 +10,8 @@ import type {
   VoiceoverAlignment,
   CaptionsStatus,
   Analysis,
+  PublishPack,
+  PublishPackStatus,
 } from "./types";
 
 // Extract the Instagram shortcode from a reel/post URL, used for dedupe.
@@ -44,6 +46,7 @@ const SUMMARY_COLUMNS = `
   transcript_status, adapted_script, red_line_flag, red_line_reason,
   voiceover_status, voiceover_path, voiceover_error,
   captions_status, captions_video_path, captions_error,
+  source_hashtags, publish_pack_status, publish_pack_error,
   source_video_path, slug, status, previous_status, thumbnail_url,
   created_at, updated_at,
   (transcript IS NOT NULL) AS has_transcript,
@@ -101,6 +104,9 @@ export interface NewReel {
   transcript?: string | null;
   transcript_status?: TranscriptStatus;
   thumbnail_url?: string | null;
+  // The source post's own caption + hashtags, straight off the scrape.
+  source_caption?: string | null;
+  source_hashtags?: string[] | null;
 }
 
 // Insert a reel. Returns the existing row if the shortcode is already present
@@ -114,8 +120,9 @@ export async function insertReel(r: NewReel): Promise<Reel> {
   }
   const { rows } = await pool.query<Reel>(
     `INSERT INTO reels
-      (account_id, hashtag_id, url, shortcode, views, source, transcript, transcript_status, thumbnail_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      (account_id, hashtag_id, url, shortcode, views, source, transcript, transcript_status,
+       thumbnail_url, source_caption, source_hashtags)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
     [
       r.account_id ?? null,
@@ -127,6 +134,11 @@ export async function insertReel(r: NewReel): Promise<Reel> {
       r.transcript ?? null,
       r.transcript_status ?? "pending",
       r.thumbnail_url ?? null,
+      r.source_caption ?? null,
+      // An empty tag list is stored as NULL, not [], so "this reel genuinely
+      // has no hashtags" and "we never captured them" don't have to be told
+      // apart by length — both read as absent, which is what the UI shows.
+      r.source_hashtags?.length ? JSON.stringify(r.source_hashtags) : null,
     ]
   );
   const id = rows[0].id;
@@ -146,28 +158,42 @@ async function touch(id: number): Promise<void> {
   await pool.query("UPDATE reels SET updated_at = now() WHERE id = $1", [id]);
 }
 
+// Fields a transcript re-pull can opportunistically backfill. A re-pull hits
+// Apify again anyway, so anything useful in that response gets saved even
+// though the transcript is what we asked for. Each is written only when
+// present: a failed or field-less re-pull never clobbers what's on record
+// with null.
+export interface TranscriptExtras {
+  thumbnailUrl?: string | null;
+  sourceCaption?: string | null;
+  sourceHashtags?: string[] | null;
+}
+
 export async function setTranscript(
   id: number,
   transcript: string | null,
   status: TranscriptStatus,
-  // Opportunistic backfill: a re-pull hits Apify again anyway, so if that
-  // response carries a thumbnail this reel didn't have yet (e.g. it was
-  // scraped before thumbnail capture existed), save it too. Never clobbers
-  // an existing thumbnail with null on a failed/thumbnail-less re-pull.
-  thumbnailUrl?: string | null
+  extras: TranscriptExtras = {}
 ): Promise<void> {
   const pool = await getPool();
-  if (thumbnailUrl) {
-    await pool.query(
-      "UPDATE reels SET transcript = $1, transcript_status = $2, thumbnail_url = $3 WHERE id = $4",
-      [transcript, status, thumbnailUrl, id]
-    );
-  } else {
-    await pool.query(
-      "UPDATE reels SET transcript = $1, transcript_status = $2 WHERE id = $3",
-      [transcript, status, id]
-    );
+  // Built as a list so adding another backfill field doesn't mean another
+  // branch of the old if/else (which already only handled one field).
+  const sets = ["transcript = $1", "transcript_status = $2"];
+  const values: unknown[] = [transcript, status];
+  const push = (col: string, value: unknown) => {
+    values.push(value);
+    sets.push(`${col} = $${values.length}`);
+  };
+  if (extras.thumbnailUrl) push("thumbnail_url", extras.thumbnailUrl);
+  if (extras.sourceCaption) push("source_caption", extras.sourceCaption);
+  if (extras.sourceHashtags?.length) {
+    push("source_hashtags", JSON.stringify(extras.sourceHashtags));
   }
+  values.push(id);
+  await pool.query(
+    `UPDATE reels SET ${sets.join(", ")} WHERE id = $${values.length}`,
+    values
+  );
   // Advance status when a transcript first lands (don't regress later states).
   if (status === "success") {
     await pool.query(
@@ -228,6 +254,27 @@ export async function setCaptions(
   await touch(id);
 }
 
+// Suggested caption / hashtags / cover text. Same shape as setVoiceover and
+// setCaptions: one status column, one payload, one error string, so a failed
+// run is visible in the UI instead of just vanishing. Deliberately does NOT
+// touch `status` — the pack is metadata hanging off the reel, not a board
+// position, so generating one never moves a card between columns.
+export async function setPublishPack(
+  id: number,
+  status: PublishPackStatus,
+  pack: PublishPack | null,
+  error: string | null
+): Promise<void> {
+  const pool = await getPool();
+  await pool.query(
+    `UPDATE reels
+       SET publish_pack_status = $1, publish_pack = $2, publish_pack_error = $3
+     WHERE id = $4`,
+    [status, pack ? JSON.stringify(pack) : null, error, id]
+  );
+  await touch(id);
+}
+
 // The finished HeyGen/edited video, uploaded before the subtitle burn.
 export async function setSourceVideo(id: number, path: string): Promise<void> {
   const pool = await getPool();
@@ -247,9 +294,41 @@ export async function setSlug(id: number, slug: string): Promise<void> {
   await touch(id);
 }
 
+// Null out every on-disk pointer for a reel whose files have been deleted
+// from the volume (see lib/retention.ts — the archive purge). The paths and
+// the alignment blob are the only columns tied to files; the transcript,
+// adapted script and publish pack are DB text and deliberately survive, so
+// an archived reel is still a readable record of what was produced.
+//
+// voiceover_status/captions_status go back to "none" rather than staying
+// "success": leaving them successful would make the UI offer download and
+// stream controls for files that no longer exist.
+export async function clearMediaPaths(id: number): Promise<void> {
+  const pool = await getPool();
+  await pool.query(
+    `UPDATE reels
+       SET voiceover_status = 'none', voiceover_path = NULL,
+           voiceover_error = NULL, voiceover_alignment = NULL,
+           source_video_path = NULL,
+           captions_status = 'none', captions_video_path = NULL,
+           captions_error = NULL
+     WHERE id = $1`,
+    [id]
+  );
+  await touch(id);
+}
+
 export async function updateEditable(
   id: number,
-  fields: { transcript?: string; adapted_script?: string }
+  fields: {
+    transcript?: string;
+    adapted_script?: string;
+    // The whole pack, re-saved after the operator edits the caption or
+    // prunes the tag list. Sent and stored as one object rather than field
+    // by field: it's a single small JSONB blob and a partial write would
+    // leave the rationale describing a caption that no longer exists.
+    publish_pack?: PublishPack;
+  }
 ): Promise<void> {
   const pool = await getPool();
   if (fields.transcript !== undefined) {
@@ -261,6 +340,12 @@ export async function updateEditable(
   if (fields.adapted_script !== undefined) {
     await pool.query("UPDATE reels SET adapted_script = $1 WHERE id = $2", [
       fields.adapted_script,
+      id,
+    ]);
+  }
+  if (fields.publish_pack !== undefined) {
+    await pool.query("UPDATE reels SET publish_pack = $1 WHERE id = $2", [
+      JSON.stringify(fields.publish_pack),
       id,
     ]);
   }

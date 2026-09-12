@@ -1,8 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
+// Two independently-overridable Gemini system prompts. They're edited in one
+// place but stored under separate settings keys, so customizing the
+// adaptation prompt never silently changes what the publish pack is told —
+// which matters, because a saved override is sent verbatim and would not
+// know about anything added to the other call's schema.
+const PROMPTS = {
+  adaptation: {
+    label: "Adaptation",
+    heading: "Adaptation system prompt",
+    blurb:
+      "Drives the red-line-compliance edit of the source transcript. Minimal edits, not a voice rewrite.",
+    savedMsg: "Saved. Takes effect on the next adaptation run.",
+  },
+  publish: {
+    label: "Publish pack",
+    heading: "Publish pack system prompt",
+    blurb:
+      "Drives the suggested Instagram caption, hashtag set, and cover text hook. Everything it writes is a draft you edit and choose from — the app never posts.",
+    savedMsg: "Saved. Takes effect on the next publish pack you generate.",
+  },
+} as const;
+
+type PromptKey = keyof typeof PROMPTS;
 
 export default function SettingsPage() {
+  const [which, setWhich] = useState<PromptKey>("adaptation");
   const [prompt, setPrompt] = useState("");
   const [isCustom, setIsCustom] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -10,23 +35,28 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  async function load() {
+  const load = useCallback(async (key: PromptKey) => {
     setLoading(true);
-    const res = await fetch("/api/settings/prompt");
+    const res = await fetch(`/api/settings/prompt?which=${key}`);
     const data = await res.json();
     setPrompt(data.prompt ?? "");
     setIsCustom(!!data.isCustom);
     setLoading(false);
-  }
-  useEffect(() => {
-    load();
   }, []);
+
+  // Refetches on every tab switch — the two prompts are separate rows, and
+  // showing a stale one would risk saving the wrong text under the wrong key.
+  // Clearing the save/error message is done in the tab handler instead, so
+  // this effect only does the one thing it exists for.
+  useEffect(() => {
+    load(which);
+  }, [which, load]);
 
   async function save() {
     setErr("");
     setMsg("");
     setBusy(true);
-    const res = await fetch("/api/settings/prompt", {
+    const res = await fetch(`/api/settings/prompt?which=${which}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ prompt }),
@@ -39,7 +69,7 @@ export default function SettingsPage() {
     }
     setPrompt(data.prompt);
     setIsCustom(data.isCustom);
-    setMsg("Saved. Takes effect on the next adaptation run.");
+    setMsg(PROMPTS[which].savedMsg);
   }
 
   async function reset() {
@@ -49,7 +79,9 @@ export default function SettingsPage() {
     setErr("");
     setMsg("");
     setBusy(true);
-    const res = await fetch("/api/settings/prompt", { method: "DELETE" });
+    const res = await fetch(`/api/settings/prompt?which=${which}`, {
+      method: "DELETE",
+    });
     const data = await res.json();
     setBusy(false);
     if (!res.ok) {
@@ -61,19 +93,37 @@ export default function SettingsPage() {
     setMsg("Reset to default.");
   }
 
+  const current = PROMPTS[which];
+
   return (
     <div className="narrow">
       <h1>Settings</h1>
       <p className="muted">
-        Edit the system prompt driving the red-line-compliance adaptation
-        step. Changes apply to the next adaptation call — nothing is
-        re-adapted automatically.
+        Edit the system prompts driving the Gemini calls. Changes apply to the
+        next call of that kind — nothing is re-run automatically.
       </p>
+
+      <div className="row" style={{ marginBottom: 12 }}>
+        {(Object.keys(PROMPTS) as PromptKey[]).map((key) => (
+          <button
+            key={key}
+            className={key === which ? "" : "secondary"}
+            onClick={() => {
+              setMsg("");
+              setErr("");
+              setWhich(key);
+            }}
+            disabled={busy}
+          >
+            {PROMPTS[key].label}
+          </button>
+        ))}
+      </div>
 
       <div className="card">
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
           <div>
-            <h2 style={{ marginBottom: 2 }}>Adaptation system prompt</h2>
+            <h2 style={{ marginBottom: 2 }}>{current.heading}</h2>
             <span className="muted">
               {isCustom ? (
                 <span className="badge amber">customized</span>
@@ -95,6 +145,8 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
+
+        <p className="muted">{current.blurb}</p>
 
         {loading ? (
           <p className="muted">Loading…</p>

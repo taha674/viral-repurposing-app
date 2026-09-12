@@ -6,6 +6,7 @@ import {
   advanceStatus,
   parseAnalysis,
 } from "@/lib/reels";
+import { archiveReel } from "@/lib/service";
 import type { ReelStatus } from "@/lib/types";
 
 // The status transitions this generic PATCH accepts from the client.
@@ -56,10 +57,18 @@ export async function PATCH(
   }
   const body = await request.json();
 
-  if (body.transcript !== undefined || body.adapted_script !== undefined) {
+  if (
+    body.transcript !== undefined ||
+    body.adapted_script !== undefined ||
+    body.publish_pack !== undefined
+  ) {
     await updateEditable(reelId, {
       transcript: body.transcript,
       adapted_script: body.adapted_script,
+      // The operator's edited caption / pruned tag list, saved back as one
+      // blob. Generation has its own endpoint (POST .../publish-pack); this
+      // is only the hand-edit path.
+      publish_pack: body.publish_pack,
     });
   }
 
@@ -67,7 +76,12 @@ export async function PATCH(
     if (!CLIENT_SETTABLE_STATUSES.includes(body.status)) {
       return NextResponse.json({ error: "invalid status" }, { status: 400 });
     }
-    if (FLAG_RESOLVING_STATUSES.includes(body.status)) {
+    if (body.status === "archived") {
+      // Archive is not a plain board move — it deletes the reel's files
+      // from the volume, so it goes through the service layer rather than
+      // a bare status write. See service.ts#archiveReel.
+      await archiveReel(reelId);
+    } else if (FLAG_RESOLVING_STATUSES.includes(body.status)) {
       await setStatus(reelId, body.status);
     } else {
       await advanceStatus(reelId, body.status);

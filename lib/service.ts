@@ -16,15 +16,19 @@ import {
   setAdaptation,
   setVoiceover,
   setCaptions,
+  setPublishPack,
   setSourceVideo,
+  clearMediaPaths,
   setSlug,
   findBySlug,
   advanceStatus,
   extractShortcode,
+  parseAnalysis,
 } from "./reels";
 import { baseSlug, reelFileName } from "./naming";
-import { scanAccount, scanHashtag, fetchReel } from "./apify";
-import { runAdaptation, classifyTalkingHead } from "./gemini";
+import { scanAccount, scanHashtag, fetchReel, captionBody } from "./apify";
+import { runAdaptation, classifyTalkingHead, runPublishPack } from "./gemini";
+import type { CoverCandidate } from "./publishPrompt";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
 import {
   probeVideo,
@@ -32,8 +36,10 @@ import {
   burnSubtitlesAndStripMetadata,
 } from "./ffmpeg";
 import { transcribeWavForWordTimings } from "./whisper";
+import { purgeReelFiles, formatBytes } from "./retention";
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
-import type { Reel, RedLineFlag } from "./types";
+import { buildPunchSchedule, punchInFilter } from "./punchIn";
+import type { Reel, RedLineFlag, PublishPack } from "./types";
 
 // Returns the reel's slug, minting it if it doesn't have one yet. Minting
 // normally happens on accept (acceptReel, below); this fallback only fires
@@ -56,10 +62,20 @@ export async function retrieveTranscript(reelId: number): Promise<Reel> {
   if (!reel) throw new Error(`Reel ${reelId} not found`);
   try {
     const scraped = await fetchReel(reel.url);
+    // The source caption and hashtags ride along on the same response we're
+    // already paying for, so they're backfilled here too — this is also the
+    // path every account-scan qualifier takes, so new reels get them whether
+    // they arrive by scan or by manual add. setTranscript never overwrites
+    // an existing value with null, so a field-less re-pull is harmless.
+    const extras = {
+      thumbnailUrl: scraped?.thumbnailUrl,
+      sourceCaption: scraped?.caption,
+      sourceHashtags: scraped?.hashtags,
+    };
     if (scraped?.transcript) {
-      await setTranscript(reelId, scraped.transcript, "success", scraped.thumbnailUrl);
+      await setTranscript(reelId, scraped.transcript, "success", extras);
     } else {
-      await setTranscript(reelId, reel.transcript, "failed", scraped?.thumbnailUrl);
+      await setTranscript(reelId, reel.transcript, "failed", extras);
     }
   } catch {
     await setTranscript(reelId, reel.transcript, "failed");
@@ -99,10 +115,46 @@ export async function restoreReel(reelId: number): Promise<Reel> {
       (reel.transcript_status === "success" ? "transcribed" : "new");
     await advanceStatus(reelId, target);
   } else if (reel.status === "archived") {
-    await advanceStatus(reelId, "captioned");
+    // Archiving purges the reel's whole folder from the volume (see
+    // archiveReel below), so there is no captioned file to come back to —
+    // returning this reel to the Subtitled column would show download and
+    // stream controls for a video that no longer exists. The adapted
+    // script is DB text and survives the purge, so the meaningful restore
+    // target is the Audio column: the operator re-generates the voiceover
+    // (an explicit, manually triggered paid call) and redoes the video.
+    await advanceStatus(reelId, "approved");
   } else {
     throw new Error("Reel is not in the Rejected or Done tray.");
   }
+  return (await getReel(reelId))!;
+}
+
+// --- Archive a finished reel, reclaiming its disk (2026-09-12) ---
+// Archive is terminal for files: it deletes the reel's entire slug folder
+// from REELS_OUTPUT_DIR. This is the pipeline's only mechanism for
+// reclaiming volume space — without it every processed reel left ~63MB
+// behind permanently and the Railway volume filled up, failing writes with
+// ENOSPC.
+//
+// The delete happens BEFORE the status move, deliberately: if the purge
+// throws (permissions, a volume that has gone read-only), the reel stays in
+// the Subtitled column with its files intact and the operator sees the
+// error, rather than landing in Done having silently kept the disk.
+export async function archiveReel(reelId: number): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+
+  const purged = purgeReelFiles(reel.slug);
+  if (purged.existed) {
+    // Logged, not silent: this removed the operator's finished video.
+    console.log(
+      `[archive] reel ${reelId} (${reel.slug}) — deleted ${purged.files.length} file(s), ` +
+        `freed ${formatBytes(purged.bytes)} from ${purged.dir}`
+    );
+  }
+  await clearMediaPaths(reelId);
+  await advanceStatus(reelId, "archived");
+
   return (await getReel(reelId))!;
 }
 
@@ -146,6 +198,133 @@ export async function adaptReel(reelId: number): Promise<Reel> {
     finalFlag,
     finalReason
   );
+  return (await getReel(reelId))!;
+}
+
+// --- Publish pack: caption / hashtags / cover text hook (2026-09-12) ---
+
+// Instagram lets the operator pick any frame as the reel's cover, and this
+// pipeline burns word-by-word subtitles in — so a frame carrying a subtitle
+// line IS a text hook. These are the real lines from the start of the video,
+// each timed to the moment it's fully drawn, computed from the same word
+// timings the burn itself uses (captions.ts). Handing the model a concrete
+// list to choose from by index is what makes the "which frame" answer real
+// rather than a plausible-sounding invention.
+const COVER_WINDOW_SECONDS = 8;
+// Frame geometry when the video hasn't been uploaded yet. The pack is
+// generated at the Adaptation stage, long before the HeyGen render exists,
+// and layoutLines needs a width to break lines on — 1080x1920 is what HeyGen
+// outputs and what every reel here ends up being. Only affects where lines
+// break, never their timing.
+const ASSUMED_WIDTH = 1080;
+const ASSUMED_HEIGHT = 1920;
+
+async function coverCandidates(reel: Reel): Promise<CoverCandidate[]> {
+  if (!reel.voiceover_alignment) return [];
+  const words = alignmentToWordTimings(reel.voiceover_alignment);
+  if (words.length === 0) return [];
+
+  // Use the real frame size once the video is on disk so the candidate lines
+  // break exactly the way the burnt-in ones will; fall back to the assumed
+  // vertical frame before the upload exists.
+  let width = ASSUMED_WIDTH;
+  let height = ASSUMED_HEIGHT;
+  if (reel.source_video_path && fs.existsSync(reel.source_video_path)) {
+    try {
+      const probe = await probeVideo(reel.source_video_path);
+      width = probe.width;
+      height = probe.height;
+    } catch {
+      // A probe failure is not worth failing the pack over — the assumed
+      // frame still produces usable line breaks and identical timings.
+    }
+  }
+
+  const lines = layoutLines(words, width, captionFontSize(height));
+  return lines
+    .filter((l) => l.start < COVER_WINDOW_SECONDS)
+    .map((l) => ({
+      // Mid-hold rather than the line's start: at `start` the first word has
+      // only just appeared, so a frame grabbed there can catch the phrase
+      // half-drawn. Halfway through it is reliably complete.
+      seconds: Number((l.start + (l.end - l.start) / 2).toFixed(2)),
+      text: l.text,
+    }));
+}
+
+// Manually triggered and freely re-runnable. Re-runnable is the point: the
+// operator routinely hand-edits adapted_script at the Adaptation stage, and a
+// pack generated before that edit describes a script that no longer exists.
+// Being a button rather than a step of adaptReel also keeps a paid call from
+// ever firing unattended inside the scan loop.
+export async function generatePublishPack(reelId: number): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  const script = reel.adapted_script;
+  if (!script?.trim()) {
+    throw new Error(
+      "Run the adaptation first — the publish pack is written from the adapted script."
+    );
+  }
+
+  // Recorded before the network call so a refresh mid-run shows "generating"
+  // rather than silently reverting to the previous pack.
+  await setPublishPack(reelId, "generating", null, null);
+
+  try {
+    const candidates = await coverCandidates(reel);
+    const result = await runPublishPack({
+      adaptedScript: script,
+      analysis: parseAnalysis(reel),
+      sourceCaptionBody: captionBody(reel.source_caption),
+      sourceHashtags: reel.source_hashtags ?? [],
+      coverCandidates: candidates,
+    });
+
+    // Resolve the chosen index against the list we actually sent. An
+    // out-of-range index becomes "no cover frame" rather than a wrong one —
+    // the whole reason the model picks by index is that it can't then name a
+    // frame that doesn't exist.
+    const idx = result.cover_frame_index;
+    const chosen =
+      Number.isInteger(idx) && idx >= 0 && idx < candidates.length
+        ? candidates[idx]
+        : null;
+
+    const validFlags: RedLineFlag[] = ["none", "needs_review", "rejected"];
+    const flag = validFlags.includes(result.red_line_flag)
+      ? result.red_line_flag
+      : "needs_review";
+
+    const pack: PublishPack = {
+      caption: result.caption,
+      caption_rationale: result.caption_rationale,
+      // Normalize away any '#' the model prefixed despite the instruction,
+      // and drop empties — the UI renders the '#' itself.
+      hashtags: (result.hashtags ?? [])
+        .map((t) => t.replace(/^#+/, "").trim())
+        .filter(Boolean),
+      hashtags_rejected: result.hashtags_rejected ?? [],
+      thumbnail_text: result.thumbnail_text ?? [],
+      hook_mode: result.hook_mode,
+      hook_mode_reason: result.hook_mode_reason,
+      // A sticker-only hook has no cover line by definition, so don't carry
+      // one even if an index came back.
+      cover_frame_seconds:
+        result.hook_mode === "sticker_only" ? null : (chosen?.seconds ?? null),
+      cover_frame_line:
+        result.hook_mode === "sticker_only" ? null : (chosen?.text ?? null),
+      red_line_flag: flag,
+      red_line_reason: result.red_line_reason ?? "",
+    };
+
+    await setPublishPack(reelId, "success", pack, null);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await setPublishPack(reelId, "failed", null, message);
+    throw err;
+  }
+
   return (await getReel(reelId))!;
 }
 
@@ -269,7 +448,33 @@ export async function burnCaptions(reelId: number): Promise<Reel> {
     const fontSize = captionFontSize(probe.height);
     const lines = layoutLines(words, probe.width, fontSize);
     fs.writeFileSync(assPath, linesToAss(lines, probe.width, probe.height));
-    await burnSubtitlesAndStripMetadata(sourcePath, assPath, outPath);
+
+    // Punch-in re-framing, scheduled off the SAME phrase lines the captions
+    // use — so every zoom lands exactly on a subtitle change, which is what
+    // the reference reels do. Applied before the ASS burn in one pass (see
+    // burnSubtitlesAndStripMetadata): zooming after would scale the
+    // subtitles along with the frame.
+    let punchChain: string | null = null;
+    if (config.punchInEnabled) {
+      const opts = {
+        step: config.punchInStep,
+        maxLevel: config.punchInMaxLevel,
+        minGapSeconds: config.punchInMinGapSeconds,
+        boundaryPercentile: config.punchInBoundaryPercentile,
+        minBeatSeconds: config.punchInMinBeatSeconds,
+        maxBeatSeconds: config.punchInMaxBeatSeconds,
+      };
+      const punches = buildPunchSchedule(words, lines, probe.durationSeconds, opts);
+      punchChain = punchInFilter(
+        punches,
+        probe.width,
+        probe.height,
+        probe.durationSeconds,
+        opts
+      );
+    }
+
+    await burnSubtitlesAndStripMetadata(sourcePath, assPath, outPath, punchChain);
 
     await setCaptions(reelId, "success", outPath, null);
     await advanceStatus(reelId, "captioned");
@@ -360,6 +565,11 @@ export async function addManualReel(
         captions_status: "none",
         captions_video_path: null,
         captions_error: null,
+        source_caption: scraped?.caption ?? null,
+        source_hashtags: scraped?.hashtags ?? null,
+        publish_pack: null,
+        publish_pack_status: "none",
+        publish_pack_error: null,
         source_video_path: null,
         slug: null,
         status: "new",
@@ -383,6 +593,8 @@ export async function addManualReel(
     transcript: scraped?.transcript ?? null,
     transcript_status: scraped?.transcript ? "success" : "failed",
     thumbnail_url: scraped?.thumbnailUrl ?? null,
+    source_caption: scraped?.caption ?? null,
+    source_hashtags: scraped?.hashtags ?? null,
   });
 
   return {
@@ -441,6 +653,8 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
           views: r.views,
           source: "weekly_scan",
           thumbnail_url: r.thumbnailUrl,
+          source_caption: r.caption,
+          source_hashtags: r.hashtags,
         });
         // insertReel dedupes: only pull transcript for genuinely new reels
         // that don't yet have one (avoids paying the transcript charge twice).
@@ -526,6 +740,8 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
           views: r.views,
           source: "hashtag_scan",
           thumbnail_url: r.thumbnailUrl,
+          source_caption: r.caption,
+          source_hashtags: r.hashtags,
         });
         if (reel.transcript_status === "pending" && !reel.transcript) {
           foundForHashtag += 1;

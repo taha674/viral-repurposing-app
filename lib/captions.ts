@@ -59,6 +59,11 @@ interface Line {
   end: number;
 }
 
+// The phrase timings, exported for consumers that need the line breaks but
+// not the per-word box geometry — the punch-in scheduler (lib/punchIn.ts)
+// keys its re-frames off exactly the boundaries this layout already found.
+export type CaptionLine = Pick<Line, "text" | "start" | "end">;
+
 // Shared by layoutLines (word-width measurement, for box placement) and
 // linesToAss (the ASS Style line) — both must agree on the exact same font
 // size or the highlight box won't land under the right word.

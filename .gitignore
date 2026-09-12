@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the template, which holds only documented defaults and no
+# credentials. Without this it was swallowed by the rule above, so every knob
+# added to config.ts went undocumented in the repo.
+!.env.example
 
 # vercel
 .vercel
