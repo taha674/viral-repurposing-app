@@ -303,6 +303,15 @@ export async function setSlug(id: number, slug: string): Promise<void> {
 // voiceover_status/captions_status go back to "none" rather than staying
 // "success": leaving them successful would make the UI offer download and
 // stream controls for files that no longer exist.
+// Drop the pointer to a source video that has been deleted from disk after
+// a successful burn (see service.ts#burnCaptions). Only the source goes —
+// the captioned output and the voiceover stay, so this is not clearMediaPaths.
+export async function clearSourceVideo(id: number): Promise<void> {
+  const pool = await getPool();
+  await pool.query("UPDATE reels SET source_video_path = NULL WHERE id = $1", [id]);
+  await touch(id);
+}
+
 export async function clearMediaPaths(id: number): Promise<void> {
   const pool = await getPool();
   await pool.query(

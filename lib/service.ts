@@ -19,6 +19,7 @@ import {
   setPublishPack,
   setSourceVideo,
   clearMediaPaths,
+  clearSourceVideo,
   setSlug,
   findBySlug,
   advanceStatus,
@@ -478,6 +479,36 @@ export async function burnCaptions(reelId: number): Promise<Reel> {
 
     await setCaptions(reelId, "success", outPath, null);
     await advanceStatus(reelId, "captioned");
+
+    // Reclaim the uploaded source now that the burn has succeeded. The
+    // source is ~44MB of a reel's ~63MB footprint and, once burned, is
+    // needed only for a re-burn — which the operator can still do by
+    // re-uploading. Disk is the binding constraint on the Railway volume
+    // (it filled up and started failing writes with ENOSPC), so the
+    // trade-off was made deliberately in favour of space.
+    //
+    // Deleted only after setCaptions("success") lands: if the burn threw,
+    // the catch below runs instead and the source survives for a retry.
+    try {
+      if (fs.existsSync(sourcePath)) {
+        const freed = fs.statSync(sourcePath).size;
+        fs.unlinkSync(sourcePath);
+        await clearSourceVideo(reelId);
+        console.log(
+          `[burn] reel ${reelId} (${slug}) — deleted source video, freed ${formatBytes(freed)}`
+        );
+      }
+    } catch (cleanupErr) {
+      // A source we failed to delete is wasted disk, not a failed burn —
+      // the captioned output is already on disk and the reel is already
+      // in the Subtitled column. Log it and move on rather than throwing
+      // the operator into a "failed" state for a finished video.
+      console.warn(
+        `[burn] reel ${reelId}: could not delete source video — ${
+          cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
+        }`
+      );
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await setCaptions(reelId, "failed", null, message);

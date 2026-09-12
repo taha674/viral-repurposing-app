@@ -85,7 +85,8 @@ const pool = new Pool({
 });
 
 const { rows } = await pool.query(
-  "SELECT id, slug, status FROM reels WHERE slug IS NOT NULL"
+  `SELECT id, slug, status, captions_status, source_video_path
+     FROM reels WHERE slug IS NOT NULL`
 );
 const bySlug = new Map(rows.map((r) => [r.slug, r]));
 
@@ -108,11 +109,38 @@ for (const name of dirs) {
   else active.push(row);
 }
 
+// Sources belonging to reels whose burn already succeeded. These sit inside
+// ACTIVE folders (the reel is in the Subtitled column, not archived), so the
+// folder-level pass above deliberately leaves them alone — but the ~44MB
+// source is dead weight once the captioned output exists. This is the same
+// reclaim the app now does automatically at the end of a burn; this pass
+// catches everything burned BEFORE that shipped.
+const burnedSources = [];
+for (const r of rows) {
+  if (r.captions_status !== "success" || !r.source_video_path) continue;
+  if (!fs.existsSync(r.source_video_path)) continue;
+  // Never touch a source whose whole folder is already slated for deletion.
+  if (r.status === "archived") continue;
+  let bytes = 0;
+  try {
+    bytes = fs.statSync(r.source_video_path).size;
+  } catch {
+    continue;
+  }
+  burnedSources.push({
+    name: path.relative(outputDir, r.source_video_path) || r.source_video_path,
+    full: r.source_video_path,
+    bytes,
+    count: 1,
+    reel: r,
+  });
+}
+
 const sum = (list) => list.reduce((t, r) => t + r.bytes, 0);
 const byBiggest = (a, b) => b.bytes - a.bytes;
 
-function report(title, list, note) {
-  console.log(`\n${title} — ${list.length} folder(s), ${fmt(sum(list))}`);
+function report(title, list, note, unit = "folder") {
+  console.log(`\n${title} — ${list.length} ${unit}(s), ${fmt(sum(list))}`);
   if (note) console.log(`  ${note}`);
   for (const r of [...list].sort(byBiggest)) {
     const who = r.reel ? `reel ${r.reel.id} (${r.reel.status})` : "no DB row";
@@ -126,15 +154,19 @@ console.log(`Total on disk: ${fmt(sum([...archived, ...orphans, ...active]))}`);
 report("ARCHIVED (reclaimable under the retention policy)", archived);
 report("ORPHANED (folder on disk, no reel row)", orphans,
   "Deleted only with --orphans. Check these before removing.");
-report("ACTIVE (still in the pipeline — never touched)", active,
-  "These are left alone regardless of flags.");
+report("BURNED SOURCES (reel already captioned — source is dead weight)", burnedSources,
+  "Deleted by --delete. The captioned output and voiceover are kept.", "file");
+report("ACTIVE (folders still in the pipeline — folder never removed)", active,
+  "Folders are left alone; a burned source inside one is listed above.");
 
-const targets = INCLUDE_ORPHANS ? [...archived, ...orphans] : archived;
+const targets = INCLUDE_ORPHANS
+  ? [...archived, ...orphans, ...burnedSources]
+  : [...archived, ...burnedSources];
 const reclaimable = sum(targets);
 
 if (!DELETE) {
   console.log(
-    `\nDRY RUN. Would delete ${targets.length} folder(s), freeing ${fmt(reclaimable)}.` +
+    `\nDRY RUN. Would delete ${targets.length} item(s), freeing ${fmt(reclaimable)}.` +
       `\nRe-run with --delete to apply${INCLUDE_ORPHANS ? "" : " (add --orphans to include orphans)"}.`
   );
   await pool.end();
@@ -148,6 +180,8 @@ for (const r of targets) {
     console.error(`  SKIP (outside volume): ${resolved}`);
     continue;
   }
+  // recursive covers the folder entries; force makes the single-file
+  // burned-source entries a no-op if something already removed them.
   fs.rmSync(resolved, { recursive: true, force: true });
   freed += r.bytes;
   console.log(`  deleted ${r.name} (${fmt(r.bytes)})`);
@@ -168,6 +202,15 @@ if (archivedIds.length > 0) {
     [archivedIds]
   );
   console.log(`  cleared media paths for ${archivedIds.length} archived reel(s)`);
+}
+
+const burnedIds = burnedSources.map((r) => r.reel.id);
+if (burnedIds.length > 0) {
+  await pool.query(
+    "UPDATE reels SET source_video_path = NULL WHERE id = ANY($1::int[])",
+    [burnedIds]
+  );
+  console.log(`  cleared source_video_path for ${burnedIds.length} burned reel(s)`);
 }
 
 console.log(`\nDone. Freed ${fmt(freed)}.`);
