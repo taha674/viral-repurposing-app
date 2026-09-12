@@ -110,13 +110,14 @@ export const config = {
   // the subtitles, BEFORE them in the filter chain so captions don't scale.
   // Set PUNCH_IN=off to fall back to the plain subtitle burn.
   punchInEnabled: (process.env.PUNCH_IN ?? "on").toLowerCase() !== "off",
-  // Zoom added per level, as a fraction of the base frame. 0.08 was too
-  // timid in practice — the re-frames were frequent but landed between two
-  // near-identical framings, so nothing read as a cut. 0.11 puts the top of
-  // the ladder at 1.33x, which still holds up: a punch is a crop-and-upscale,
-  // and at 1.33x you keep 75% of the source's linear detail, checked against
-  // a real HeyGen face crop.
-  punchInStep: floatEnv("PUNCH_IN_STEP", 0.11),
+  // Zoom added per level, as a fraction of the base frame. Landed by
+  // bracketing: 0.08 read as too timid (re-frames landed between two
+  // near-identical framings, so nothing registered as a cut), 0.11 read as
+  // too aggressive. 0.09 puts the top of the ladder at 1.27x and the mean
+  // zoom near the midpoint of those two judgements. Resolution is not the
+  // binding constraint here — at 1.27x you still keep 79% of the source's
+  // linear detail.
+  punchInStep: floatEnv("PUNCH_IN_STEP", 0.09),
   // Ceiling on the number of steps, not on the zoom itself. Every climb ends
   // at this level; what varies is how many punches it takes to get there.
   // Raising it past 3 costs resolution fast (at step 0.11, level 4 would be
