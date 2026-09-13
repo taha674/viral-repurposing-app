@@ -42,6 +42,9 @@ export interface PunchOptions {
   step: number; // zoom added per level, as a fraction of the base frame
   maxLevel: number; // ceiling — capped by resolution, see config
   minGapSeconds: number; // a word gap this long is a phrase break
+  // A re-frame holds at least this long AND at least until the caption that
+  // was raised by it finishes, whichever is later.
+  minHoldSeconds: number;
   boundaryPercentile: number; // pauses above this percentile end a beat
   minBeatSeconds: number;
   maxBeatSeconds: number;
@@ -180,36 +183,69 @@ export function buildPunchSchedule(
   const starts = lines.map((l) => +l.start.toFixed(3));
   if (starts.length === 0) return [];
 
+  // When the caption that is on screen at a given line start finishes. A
+  // re-frame holds at least until then, so a zoom never lands on top of a
+  // caption that is still mid-sentence.
+  const lineEndByStart = new Map(
+    lines.map((l) => [+l.start.toFixed(3), l.end] as const)
+  );
+
+  // The earliest a NEXT re-frame may happen, given one just landed at `t`:
+  // the later of the current caption's end and a hard minimum dwell.
+  const holdUntil = (t: number) =>
+    Math.max(lineEndByStart.get(t) ?? t, t + opts.minHoldSeconds);
+
+  // First caption change at or after `from` — so a deferred re-frame still
+  // lands on a caption boundary rather than drifting off one.
+  const startAtOrAfter = (from: number): number | null =>
+    starts.find((s) => s >= from - 1e-6) ?? null;
+
   const events: PunchEvent[] = [];
   let level = 0;
+  let openUntil = -Infinity; // nothing may fire before this
+
   for (const beat of beats) {
     const inner = gaps
       .filter((g) => g.t > beat.start + 0.25 && g.t < beat.end - 0.25)
       .sort((a, b) => a.t - b.t);
 
-    // How many punches this beat gets — 1, 2 or 3 — is what varies, and it
-    // varies with the beat's own content.
-    const depth = Math.min(opts.maxLevel, inner.length);
-
-    // Every climb finishes at the TOP of the ladder; a short climb just gets
-    // there in fewer steps (0 -> 3, or 0 -> 2 -> 3, or 0 -> 1 -> 2 -> 3).
-    //
-    // The earlier version stepped 1,2,...,depth, so a one-punch beat only ever
-    // reached 1.08x and a two-punch beat 1.16x. Since most beats hold one or
-    // two phrase breaks, that left ~65% of the runtime at 1.00x or 1.08x —
-    // frequent re-frames between two near-identical framings, which reads as
-    // nothing happening. Measured: no parameter combination could push time
-    // at level 2+ above 33%, against 43% for the original fixed-depth cut.
-    // Varying the STEP COUNT while holding the destination keeps the "once,
-    // twice, thrice" rhythm and keeps the frame genuinely tight.
-    const startLevel = opts.maxLevel - depth + 1;
-    for (let i = 0; i < depth; i++) {
-      level = startLevel + i;
-      events.push({ t: snapToLine(inner[i].t, starts), level });
+    // Collect the punch instants this beat can actually support, rejecting
+    // any that would cut short the caption raised by the previous one.
+    const times: number[] = [];
+    for (const g of inner) {
+      if (times.length >= opts.maxLevel) break;
+      const snapped = snapToLine(g.t, starts);
+      const t = snapped >= openUntil ? snapped : startAtOrAfter(openUntil);
+      if (t === null || t >= beat.end || (times.length && t <= times[times.length - 1])) {
+        continue;
+      }
+      times.push(t);
+      openUntil = holdUntil(t);
     }
-    if (level !== 0 && beat.end < duration - 0.4) {
-      level = 0;
-      events.push({ t: snapToLine(beat.end, starts), level });
+
+    // How many punches this beat gets is what varies, and it varies with the
+    // beat's own content. Every climb finishes at the TOP of the ladder; a
+    // shorter climb just gets there in fewer steps.
+    //
+    // An earlier version stepped 1,2,...,depth instead, so a one-punch beat
+    // only ever reached the first level. Since most beats hold one or two
+    // phrase breaks, that left ~65% of the runtime nearly unzoomed —
+    // re-frames between two near-identical framings, which reads as nothing
+    // happening. Measured: no parameter combination could push time at the
+    // upper levels above 33%, against 43% for the original fixed-depth cut.
+    const startLevel = opts.maxLevel - times.length + 1;
+    times.forEach((t, i) => {
+      level = startLevel + i;
+      events.push({ t, level });
+    });
+
+    if (level !== 0) {
+      const release = startAtOrAfter(Math.max(beat.end, openUntil));
+      if (release !== null && release < duration - 0.4) {
+        level = 0;
+        events.push({ t: release, level });
+        openUntil = holdUntil(release);
+      }
     }
   }
 

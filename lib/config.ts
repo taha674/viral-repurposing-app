@@ -118,11 +118,16 @@ export const config = {
   // binding constraint here — at 1.27x you still keep 79% of the source's
   // linear detail.
   punchInStep: floatEnv("PUNCH_IN_STEP", 0.09),
-  // Ceiling on the number of steps, not on the zoom itself. Every climb ends
-  // at this level; what varies is how many punches it takes to get there.
-  // Raising it past 3 costs resolution fast (at step 0.11, level 4 would be
-  // 1.44x = 69% linear detail on an already-synthesised render).
-  punchInMaxLevel: intEnv("PUNCH_IN_MAX_LEVEL", 3),
+  // Ceiling on the number of steps. Every climb ends at this level; what
+  // varies is how many punches it takes to get there. Three levels read as
+  // too much — the successive steps landed 1.1-1.5s apart and the top of the
+  // ladder was tighter than the footage wanted — so a cycle is now at most
+  // two punches, topping out at 1.18x.
+  punchInMaxLevel: intEnv("PUNCH_IN_MAX_LEVEL", 2),
+  // A re-frame holds at least this long, and at least until the caption
+  // it landed on finishes — whichever is later. Stops a climb from
+  // stepping again while the same words are still on screen.
+  punchInMinHoldSeconds: floatEnv("PUNCH_IN_MIN_HOLD", 0.5),
   // A word gap this long counts as a phrase break. Derived from WORD
   // timings, not caption-line boundaries: layoutLines breaks on word count
   // and width far more often than on pauses, so its line gaps are mostly

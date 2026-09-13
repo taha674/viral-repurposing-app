@@ -593,6 +593,7 @@ export async function burnCaptions(reelId: number): Promise<Reel> {
         step: config.punchInStep,
         maxLevel: config.punchInMaxLevel,
         minGapSeconds: config.punchInMinGapSeconds,
+        minHoldSeconds: config.punchInMinHoldSeconds,
         boundaryPercentile: config.punchInBoundaryPercentile,
         minBeatSeconds: config.punchInMinBeatSeconds,
         maxBeatSeconds: config.punchInMaxBeatSeconds,
