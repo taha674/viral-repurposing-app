@@ -24,6 +24,23 @@ export const RED_LINES: string[] = [
   "No highly deceptive behaviour. NOTE: fictional character stories (e.g. \"my father told me this\") are explicitly ALLOWED and are NOT a violation — a first-person narrative frame around a real, sound principle is fine.",
 ];
 
+// Distilled from the Fortress System landing page. This is the ONLY product
+// context the model gets for the CTA rewrite — keep it accurate, and update
+// it here (not ad hoc in the CTA) if the offer or pricing changes.
+export const PRODUCT_CONTEXT = `THE FORTRESS SYSTEM — the product every adapted CTA points to.
+Not a course, not a community, not a subscription. A book + a companion tracker, sold as one system.
+
+- "Fortress of Certainty" (book, $9 standalone) — a six-pillar wealth-architecture framework, one chapter per pillar:
+  1. The Time Tax — zero-leverage; debt reframed as a claim on your future working hours.
+  2. The Sovereign Screen — three filters that separate real investing from speculation.
+  3. Tangible Yields — real-world, asset-backed income (REITs, rental income, dividends) over "safe" bonds.
+  4. The Asymmetric Bet — Citadel (safe) vs. Reach (speculative) allocation, Reach capped under 10%.
+  5. The Ultimate Hedge — building income that outlives your salary and your hours.
+  6. The Law of Circulation — giving as a structural habit, not sentiment.
+- The Anti-Fragile Wealth Tracker (Excel/Google Sheets, $17 standalone) — one tab per pillar, gold-border cells for manual input, gray cells auto-calculated, produces a single 0-100 "Fortress Score" on open. Updated monthly, ~20 minutes, no bank or account connection (manual entry is intentional).
+- Bundled together: $26.
+- No leverage, no speculation, no trading tips. Never let the CTA promise a specific financial outcome, get-rich-quick result, or imply the book/tracker is personalized investment advice.`;
+
 // The structured result the model must return.
 export interface AdaptationResult {
   analysis: {
@@ -49,7 +66,9 @@ export function buildSystemPrompt(): string {
 You are given the transcript of a proven viral reel. Cyrus repurposes the
 STRUCTURE of what already works. Your task is to make the SMALLEST possible set
 of edits so the script crosses none of the red lines below, while preserving the
-original wording, rhythm, hook, and structure as much as possible.
+original wording, rhythm, hook, and structure as much as possible — with ONE
+deliberate exception: the CTA, which you rewrite to segue into Cyrus's actual
+product. See "CTA adaptation" below.
 
 CRITICAL rules for the edit:
 - Do NOT rewrite the script into a distinct "Cyrus voice." Do NOT restyle,
@@ -66,22 +85,64 @@ CRITICAL rules for the edit:
   left" (still fake scarcity, just vaguer). If you cannot fix a violation with
   a genuinely compliant phrase, flag it instead of forcing a pseudo-fix.
 
-## Red lines (the ONLY thing you edit for)
+## Red lines (the ONLY thing you edit the BODY of the script for)
 
 ${redLines}
 
+## Product context
+
+${PRODUCT_CONTEXT}
+
+## CTA adaptation — the one section you actively rewrite
+
+Every other beat of the script (hook, reframe, mechanism, philosophical_close)
+gets MINIMAL red-line edits only, per the rules above. The CTA is the
+exception: rewrite it — don't just red-line it — so it segues naturally out of
+the script's own closing idea into The Fortress System (see Product context
+above). This rewrite is required on every script, independent of whether the
+source's original CTA had a red-line violation.
+
+- Bridge, don't jump-cut. Use the reel's own mechanism or closing idea as the
+  launchpad into the pitch. Example: a reel about carrying debt bridges into
+  the Time Tax pillar; a reel about chasing hot stocks bridges into the
+  Sovereign Screen; a reel about needing a raise bridges into the Ultimate
+  Hedge. If no single pillar fits, bridge to the book + tracker system
+  generally — a clean, generic bridge beats a stretched, forced one.
+- Match the original CTA's length and register: a short, spoken sign-off (one
+  to three sentences), not an ad read. Don't expand it into a pitch that
+  breaks the pacing of the rest of the adapted script.
+- Describe the product accurately and only from the Product context above —
+  a short book plus a companion Excel/Sheets tracker that scores your
+  financial architecture monthly. Never invent features, testimonials,
+  guarantees, results, or urgency that aren't in that description. Prices are
+  optional in the CTA; only state them if they help the flow, and only as
+  given above ($9 book / $17 tracker / $26 bundle).
+- This is exactly where grifting, fake-scarcity, hustle-bro, and
+  deceptive-CTA violations are most likely — hold the rewritten CTA to every
+  red line above. No manufactured urgency ("only X left," "today only"), no
+  promised financial outcomes, no implying the book/tracker is personalized
+  financial advice.
+- Prefer a natural point toward the book/tracker/system over a hard sell —
+  the goal is a segue, not a pitch.
+
+Note the CTA rewrite in edits_made, prefixed "CTA:" so it reads as separate
+from any red-line fix elsewhere in the script.
+
 ## Flag rules — CRITICAL for compliance
 
-The red_line_flag MUST reflect your actual edits. This is non-negotiable:
-- If you make ANY edits to the adapted_script for compliance reasons (because
-  you detected and fixed a red-line violation), you MUST set the flag to at
-  least "needs_review". Never report "none" if you edited something.
-- "none" means: the source was already compliant, NO edits were needed.
-- "needs_review" means: you made edits and the human should verify your judgment
-  (a borderline claim, an ambiguous reframe, or uncertainty about whether the
-  fix is truly compliant).
-- "rejected" means: you could not fix the violation without abandoning the
-  core premise, or the source is fundamentally non-compliant.
+red_line_flag tracks ONLY red-line fixes to the hook/reframe/mechanism/
+philosophical_close — the mandatory CTA rewrite above does not by itself
+change the flag. This is non-negotiable:
+- If you make ANY edits outside the CTA for compliance reasons (because you
+  detected and fixed a red-line violation), you MUST set the flag to at least
+  "needs_review". Never report "none" if you edited something outside the CTA.
+- "none" means: apart from the required CTA rewrite, the source was already
+  compliant — no other edits were needed.
+- "needs_review" means: you made edits outside the CTA and the human should
+  verify your judgment (a borderline claim, an ambiguous reframe, or
+  uncertainty about whether the fix is truly compliant).
+- "rejected" means: you could not fix a violation outside the CTA without
+  abandoning the core premise, or the source is fundamentally non-compliant.
 
 ## When the source can't be salvaged with minimal edits — FLAG, don't force
 
@@ -195,7 +256,7 @@ export const ADAPTATION_SCHEMA = {
     adapted_script: {
       type: "string",
       description:
-        "The minimally-edited, red-line-compliant script. Preserves the original as much as possible.",
+        "The red-line-compliant script: minimally edited throughout, except the CTA, which is rewritten to segue into The Fortress System.",
     },
     red_line_flag: {
       type: "string",
