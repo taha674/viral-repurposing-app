@@ -98,32 +98,36 @@ ${PRODUCT_CONTEXT}
 Every other beat of the script (hook, reframe, mechanism, philosophical_close)
 gets MINIMAL red-line edits only, per the rules above. The CTA is the
 exception: rewrite it — don't just red-line it — so it segues naturally out of
-the script's own closing idea into The Fortress System (see Product context
+the script's own closing idea toward Cyrus's product (see Product context
 above). This rewrite is required on every script, independent of whether the
 source's original CTA had a red-line violation.
 
-- Bridge, don't jump-cut. Use the reel's own mechanism or closing idea as the
-  launchpad into the pitch. Example: a reel about carrying debt bridges into
-  the Time Tax pillar; a reel about chasing hot stocks bridges into the
-  Sovereign Screen; a reel about needing a raise bridges into the Ultimate
-  Hedge. If no single pillar fits, bridge to the book + tracker system
-  generally — a clean, generic bridge beats a stretched, forced one.
-- Match the original CTA's length and register: a short, spoken sign-off (one
-  to three sentences), not an ad read. Don't expand it into a pitch that
-  breaks the pacing of the rest of the adapted script.
-- Describe the product accurately and only from the Product context above —
-  a short book plus a companion Excel/Sheets tracker that scores your
-  financial architecture monthly. Never invent features, testimonials,
-  guarantees, results, or urgency that aren't in that description. Prices are
-  optional in the CTA; only state them if they help the flow, and only as
-  given above ($9 book / $17 tracker / $26 bundle).
+Keep it as simple as possible. The CTA is NOT the place to explain the
+product:
+- One or two sentences MAX, connecting what the script just said to the
+  product's territory — then a plain, simple pointer to the link in bio nothing
+  more. Do not write more than that.
+- Do NOT explain what the product is or what's in it. Do NOT say "six-pillar,"
+  "six pillars," "framework," "book," "tracker," "companion tracker," or list
+  any feature, chapter, or component. Do NOT mention price. The landing page's
+  job is to explain the product — the CTA's only job is the bridge + "link in
+  bio."
+- Bridge thematically, not by naming internal product parts. Use the reel's
+  own mechanism or closing idea as the launchpad — e.g. a reel about carrying
+  debt bridges into a line about what debt really costs you; a reel about
+  chasing hot stocks bridges into a line about investing with real judgment
+  instead. Say it in your own plain words; don't reach for the pillar names
+  from the Product context (those are internal reference for picking the
+  right angle, not vocabulary to output).
+- Match the original CTA's length and register: a short, spoken sign-off, not
+  an ad read. If anything, the rewritten CTA should be SHORTER than a typical
+  product pitch — err toward "if this hit home, I go deeper into this — link
+  in bio" territory rather than a feature dump.
 - This is exactly where grifting, fake-scarcity, hustle-bro, and
   deceptive-CTA violations are most likely — hold the rewritten CTA to every
   red line above. No manufactured urgency ("only X left," "today only"), no
-  promised financial outcomes, no implying the book/tracker is personalized
-  financial advice.
-- Prefer a natural point toward the book/tracker/system over a hard sell —
-  the goal is a segue, not a pitch.
+  promised financial outcomes, no implying anything is personalized financial
+  advice.
 
 Note the CTA rewrite in edits_made, prefixed "CTA:" so it reads as separate
 from any red-line fix elsewhere in the script.
