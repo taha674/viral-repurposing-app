@@ -27,7 +27,7 @@ import {
   parseAnalysis,
 } from "./reels";
 import { baseSlug, reelFileName } from "./naming";
-import { scanAccount, scanHashtag, fetchReel, captionBody } from "./apify";
+import { scanAccount, scanHashtag, fetchReel, captionBody, type ScrapedReel } from "./apify";
 import { runAdaptation, classifyTalkingHead, runPublishPack } from "./gemini";
 import type { CoverCandidate } from "./publishPrompt";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
@@ -40,7 +40,7 @@ import { transcribeWavForWordTimings } from "./whisper";
 import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } from "./retention";
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import { buildPunchSchedule, punchInFilter } from "./punchIn";
-import type { Reel, RedLineFlag, PublishPack } from "./types";
+import type { Reel, RedLineFlag, PublishPack, TrackedAccount } from "./types";
 
 // Returns the reel's slug, minting it if it doesn't have one yet. Minting
 // normally happens on accept (acceptReel, below); this fallback only fires
@@ -796,26 +796,71 @@ async function logScan(
   );
 }
 
-// Tracked-account scan: cheap per-account sweep, qualify on views, pull a
-// transcript only for genuinely new reels. Unchanged from the original
-// single-mode runScan other than being split into its own function.
+interface AccountQueue {
+  account: TrackedAccount;
+  // Ranked (highest views first) and already filtered down to reels NOT yet
+  // on record — every entry here is a genuine admission candidate.
+  candidates: ScrapedReel[];
+  cursor: number;
+  found: number;
+}
+
+// Tracked-account scan: cheap per-account sweep, ranked by views (no floor —
+// see config.ts#viewThreshold comment for why), pull a transcript only for
+// genuinely new reels.
+//
+// Highest-viewed-first, round-robin in SCAN_BATCH_PER_ACCOUNT-sized chunks,
+// until SCAN_MIN_NEW_REELS_PER_RUN is hit (2026-09-14, revised same day): a
+// flat 500k floor was starving the scan on accounts whose recent posts
+// didn't clear it, even though those accounts have plenty of qualifying
+// history — so ranking replaced the floor. A flat "2 per account" cap then
+// undershot the operator's per-run target whenever there weren't enough
+// active accounts to reach it on 2 each, so accounts now take turns giving
+// up another SCAN_BATCH_PER_ACCOUNT-sized chunk (still highest-viewed-first
+// within each account) until the run-wide floor is met or every account's
+// ranked list runs dry. Because each account's candidate list already
+// excludes what's on record, the next scan run naturally resumes further
+// down each account's ranking — no separate cursor needs to be persisted.
 async function scanTrackedAccounts(): Promise<{ count: number; newReels: number; errors: number }> {
   const accounts = (await listAccounts()).filter((a) => a.active === 1);
 
-  let newReels = 0;
   let errors = 0;
+  const queues: AccountQueue[] = [];
 
   for (const account of accounts) {
     try {
       const scraped = await scanAccount(account.handle);
-      const qualifying = scraped.filter(
-        (r) => r.views !== null && r.views >= config.viewThreshold && r.url
-      );
+      const ranked = scraped
+        .filter((r) => r.url)
+        .sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
 
-      let foundForAccount = 0;
-      for (const r of qualifying) {
+      const candidates: ScrapedReel[] = [];
+      for (const r of ranked) {
+        const shortcode = r.shortcode ?? extractShortcode(r.url);
+        if (shortcode && (await findByShortcode(shortcode))) continue; // already on record
+        candidates.push(r);
+      }
+      queues.push({ account, candidates, cursor: 0, found: 0 });
+    } catch (err) {
+      errors += 1;
+      const message = err instanceof Error ? err.message : String(err);
+      await logScan(account.id, account.handle, "error", message, 0);
+    }
+  }
+
+  let totalNew = 0;
+  let anyRemaining = queues.some((q) => q.cursor < q.candidates.length);
+  while (totalNew < config.scanMinNewReelsPerRun && anyRemaining) {
+    anyRemaining = false;
+    for (const q of queues) {
+      if (totalNew >= config.scanMinNewReelsPerRun) break;
+      if (q.cursor >= q.candidates.length) continue;
+
+      const roundEnd = Math.min(q.cursor + config.scanBatchPerAccount, q.candidates.length);
+      for (; q.cursor < roundEnd; q.cursor++) {
+        const r = q.candidates[q.cursor];
         const reel = await insertReel({
-          account_id: account.id,
+          account_id: q.account.id,
           url: r.url,
           shortcode: r.shortcode,
           views: r.views,
@@ -827,28 +872,27 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
         // insertReel dedupes: only pull transcript for genuinely new reels
         // that don't yet have one (avoids paying the transcript charge twice).
         if (reel.transcript_status === "pending" && !reel.transcript) {
-          foundForAccount += 1;
+          q.found += 1;
+          totalNew += 1;
           await retrieveTranscript(reel.id);
         }
       }
-
-      await markScanned(account.id, foundForAccount);
-      newReels += foundForAccount;
-      await logScan(
-        account.id,
-        account.handle,
-        "ok",
-        `${qualifying.length} qualifying, ${foundForAccount} new`,
-        foundForAccount
-      );
-    } catch (err) {
-      errors += 1;
-      const message = err instanceof Error ? err.message : String(err);
-      await logScan(account.id, account.handle, "error", message, 0);
+      if (q.cursor < q.candidates.length) anyRemaining = true;
     }
   }
 
-  return { count: accounts.length, newReels, errors };
+  for (const q of queues) {
+    await markScanned(q.account.id, q.found);
+    await logScan(
+      q.account.id,
+      q.account.handle,
+      "ok",
+      `${q.found} new (top-viewed)`,
+      q.found
+    );
+  }
+
+  return { count: accounts.length, newReels: totalNew, errors };
 }
 
 // Hashtag discovery scan (2026-08-24). Three-stage funnel per hashtag, cheap

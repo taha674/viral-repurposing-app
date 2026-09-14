@@ -71,8 +71,37 @@ export const config = {
     : path.join(process.cwd(), "..", "..", "reels"),
 
   // Tunables
+  // No longer applied to the account scan (2026-09-14) — that scan now
+  // qualifies purely on view-rank (highest first), not a hard floor, so a
+  // quiet week doesn't come back empty. Still used by addManualReel (the
+  // "paste a URL" shortlist add) and the hashtag scan, where a floor still
+  // makes sense.
   viewThreshold: intEnv("VIEW_THRESHOLD", 500_000),
-  scanPostsPerAccount: intEnv("SCAN_POSTS_PER_ACCOUNT", 20),
+  // Posts pulled per account per scan sweep — high enough to approximate
+  // "the account's available history" rather than just its most-recent
+  // handful, while still bounded (project rule: no unbounded pull against a
+  // paid API). This is metadata-only (no transcript charge), so the cost of
+  // a high limit is low; SCAN_BATCH_PER_ACCOUNT below is what actually
+  // rations the expensive per-reel work (transcript pull).
+  scanPostsPerAccount: intEnv("SCAN_POSTS_PER_ACCOUNT", 200),
+  // How many NEW reels (by view rank, highest first) each account gives up
+  // per round when the scan cycles through accounts (see
+  // scanMinNewReelsPerRun below) — the "2 at a time" increment. Reels
+  // already on record (by shortcode) don't count against this, so a given
+  // account's own pace across scan runs still advances 2-at-a-time down its
+  // ranked list even though a single run may take more than one round's
+  // worth from it to hit the run-wide floor.
+  scanBatchPerAccount: intEnv("SCAN_BATCH_PER_ACCOUNT", 2),
+  // Floor on total NEW reels the account scan tries to gather in one run,
+  // across all active accounts combined. Round-robins accounts in
+  // scanBatchPerAccount-sized chunks (2 from account A, 2 from account B,
+  // ... then back to A for the next 2, etc.) until this many new reels have
+  // been found or every account's ranked candidate list is exhausted —
+  // whichever comes first, so it's a target, not a promise, and it never
+  // loops once accounts genuinely have nothing left to give. Each admitted
+  // reel costs a paid Apify transcript pull, so this doubles as the hard cap
+  // on that spend for one scan run.
+  scanMinNewReelsPerRun: intEnv("SCAN_MIN_NEW_REELS_PER_RUN", 15),
   // Top reels pulled per hashtag during a hashtag scan (before the view-count
   // and talking-head filters run) — separate knob since hashtag volume/noise
   // is very different from a tracked account's own post history.
