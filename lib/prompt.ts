@@ -24,9 +24,12 @@ export const RED_LINES: string[] = [
   "No highly deceptive behaviour. NOTE: fictional character stories (e.g. \"my father told me this\") are explicitly ALLOWED and are NOT a violation — a first-person narrative frame around a real, sound principle is fine.",
 ];
 
-// Distilled from the Fortress System landing page. This is the ONLY product
-// context the model gets for the CTA rewrite — keep it accurate, and update
-// it here (not ad hoc in the CTA) if the offer or pricing changes.
+// Distilled from the Fortress System landing page. The CTA no longer names
+// or points directly at this product (see "CTA adaptation" below — it's now
+// a comment-to-DM ask tied to the reel's own topic) — this stays in the
+// prompt as background on Cyrus's positioning and red-line philosophy so the
+// model's tone and judgment stay consistent. Update it here (not ad hoc
+// elsewhere) if the offer or pricing changes.
 export const PRODUCT_CONTEXT = `THE FORTRESS SYSTEM — the product every adapted CTA points to.
 Not a course, not a community, not a subscription. A book + a companion tracker, sold as one system.
 
@@ -98,36 +101,43 @@ ${PRODUCT_CONTEXT}
 Every other beat of the script (hook, reframe, mechanism, philosophical_close)
 gets MINIMAL red-line edits only, per the rules above. The CTA is the
 exception: rewrite it — don't just red-line it — so it segues naturally out of
-the script's own closing idea toward Cyrus's product (see Product context
-above). This rewrite is required on every script, independent of whether the
-source's original CTA had a red-line violation.
+the script's own closing idea into a comment-to-DM invitation (see below).
+This rewrite is required on every script, independent of whether the source's
+original CTA had a red-line violation.
 
-Keep it as simple as possible. The CTA is NOT the place to explain the
-product:
-- One or two sentences MAX, connecting what the script just said to the
-  product's territory — then a plain, simple pointer to the link in bio nothing
-  more. Do not write more than that.
-- Do NOT explain what the product is or what's in it. Do NOT say "six-pillar,"
-  "six pillars," "framework," "book," "tracker," "companion tracker," or list
-  any feature, chapter, or component. Do NOT mention price. The landing page's
-  job is to explain the product — the CTA's only job is the bridge + "link in
-  bio."
-- Bridge thematically, not by naming internal product parts. Use the reel's
-  own mechanism or closing idea as the launchpad — e.g. a reel about carrying
-  debt bridges into a line about what debt really costs you; a reel about
-  chasing hot stocks bridges into a line about investing with real judgment
-  instead. Say it in your own plain words; don't reach for the pillar names
-  from the Product context (those are internal reference for picking the
-  right angle, not vocabulary to output).
+Keep it as simple as possible. The CTA is NOT the place to explain a product:
+
+- The mechanic: ask the viewer to comment one word or short phrase, and
+  promise to personally send them more on THIS VIDEO'S topic in reply. Do NOT
+  point to "link in bio" — the whole CTA lives in the comment exchange.
+- Pick the comment keyword from this reel's own topic or mechanism — never a
+  fixed brand word, and never "Fortress." The keyword should read as if it
+  names the specific thing this video is about, so it changes script to
+  script. A reel about the true cost of debt might use "TIME"; a reel about
+  chasing hot stocks might use "SIGNAL." Invent one that fits THIS script.
+- Promise only more information on the reel's own topic — "the breakdown,"
+  "what I send people who ask about this," "the rest of this" — never a named
+  product, price, or feature. What Cyrus actually sends in DMs is decided
+  outside this app and can change reel to reel (today it may point back to
+  existing material; a topic that resonates strongly enough may earn its own
+  dedicated follow-up later) — the script must stay agnostic to that and
+  never commit to specifics the app can't know.
+- One or two sentences MAX: the bridge line, then the comment ask. Do not
+  write more than that.
+- Bridge thematically, using the reel's own mechanism or closing idea as the
+  launchpad — e.g. a reel about carrying debt bridges into a line about what
+  debt really costs you, then the comment ask. Say it in your own plain
+  words; don't reach for the pillar names from the Product context above
+  (that's background on Cyrus's positioning, not vocabulary to output here).
 - Match the original CTA's length and register: a short, spoken sign-off, not
-  an ad read. If anything, the rewritten CTA should be SHORTER than a typical
-  product pitch — err toward "if this hit home, I go deeper into this — link
-  in bio" territory rather than a feature dump.
+  an ad read. Err toward "if this hit home, comment [KEYWORD] and I'll send
+  you the rest" territory rather than a feature dump.
 - This is exactly where grifting, fake-scarcity, hustle-bro, and
   deceptive-CTA violations are most likely — hold the rewritten CTA to every
   red line above. No manufactured urgency ("only X left," "today only"), no
   promised financial outcomes, no implying anything is personalized financial
-  advice.
+  advice. The reply promised must be something the operator can and will
+  actually send — never dangle a reply that won't come.
 
 Note the CTA rewrite in edits_made, prefixed "CTA:" so it reads as separate
 from any red-line fix elsewhere in the script.
@@ -260,7 +270,7 @@ export const ADAPTATION_SCHEMA = {
     adapted_script: {
       type: "string",
       description:
-        "The red-line-compliant script: minimally edited throughout, except the CTA, which is rewritten to segue into The Fortress System.",
+        "The red-line-compliant script: minimally edited throughout, except the CTA, which is rewritten into a comment-to-DM ask tied to the reel's own topic.",
     },
     red_line_flag: {
       type: "string",
