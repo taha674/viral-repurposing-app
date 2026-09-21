@@ -18,14 +18,18 @@ export default function AdaptationStage(props: StageProps) {
   const [editing, setEditing] = useState(false);
   const [script, setScript] = useState(reel.adapted_script ?? "");
 
-  async function saveEdits() {
-    setErr("");
-    setBusy("save");
+  async function saveScript(text: string) {
     await fetch(`/api/reels/${reel.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ adapted_script: script }),
+      body: JSON.stringify({ adapted_script: text }),
     });
+  }
+
+  async function saveEdits() {
+    setErr("");
+    setBusy("save");
+    await saveScript(script);
     setBusy("");
     await reload();
     onBoardChange();
@@ -35,6 +39,13 @@ export default function AdaptationStage(props: StageProps) {
   async function approve() {
     setErr("");
     setBusy("approve");
+    // If the operator is mid-edit, the textarea's contents only live in
+    // local state until "Save edits" is clicked — approving without
+    // flushing them first would silently approve (and later voice) the
+    // pre-edit script instead of what's on screen.
+    if (editing) {
+      await saveScript(script);
+    }
     const res = await fetch(`/api/reels/${reel.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -45,6 +56,7 @@ export default function AdaptationStage(props: StageProps) {
       setErr((await res.json()).error ?? "Failed to approve");
       return;
     }
+    setEditing(false);
     onBoardChange();
     onClose();
   }

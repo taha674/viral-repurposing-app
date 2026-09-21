@@ -64,7 +64,7 @@ export default function VideoStage({
           accept="video/*"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         />
-        <button onClick={upload} disabled={busy === "upload" || !file}>
+        <button className="secondary" onClick={upload} disabled={busy === "upload" || !file}>
           {busy === "upload" ? "Uploading…" : "Upload"}
         </button>
       </div>

@@ -222,7 +222,7 @@ export default function PublishPackPanel({
           <div className="row" style={{ marginTop: 16 }}>
             {editing ? (
               <>
-                <button onClick={saveEdits} disabled={busy === "pack-save"}>
+                <button className="secondary" onClick={saveEdits} disabled={busy === "pack-save"}>
                   {busy === "pack-save" ? "Saving…" : "Save edits"}
                 </button>
                 <button

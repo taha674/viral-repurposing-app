@@ -60,7 +60,7 @@ export default function AudioStage({
 
       <h2 style={{ marginTop: 16 }}>Voiceover</h2>
       <div className="row">
-        <button onClick={generate} disabled={isGenerating}>
+        <button className="secondary" onClick={generate} disabled={isGenerating}>
           {isGenerating
             ? "Generating…"
             : reel.voiceover_status === "success"
