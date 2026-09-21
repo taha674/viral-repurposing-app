@@ -28,6 +28,12 @@ export function streamFile(
   const range = request.headers.get("range");
   const dispositionHeader = `${disposition}; filename="${downloadName}"`;
 
+  // These routes serve a file at a URL that stays the same across a
+  // regenerate (voiceover regenerate, caption re-burn) while the bytes
+  // underneath change — without this, a browser or intermediary proxy that
+  // cached the first response would keep serving the old take.
+  const cacheControl = "no-store";
+
   if (!range) {
     const nodeStream = fs.createReadStream(filePath);
     return new NextResponse(Readable.toWeb(nodeStream) as ReadableStream, {
@@ -36,6 +42,7 @@ export function streamFile(
         "Content-Length": String(size),
         "Content-Disposition": dispositionHeader,
         "Accept-Ranges": "bytes",
+        "Cache-Control": cacheControl,
       },
     });
   }
@@ -66,6 +73,7 @@ export function streamFile(
       "Content-Range": `bytes ${start}-${end}/${size}`,
       "Content-Disposition": dispositionHeader,
       "Accept-Ranges": "bytes",
+      "Cache-Control": cacheControl,
     },
   });
 }

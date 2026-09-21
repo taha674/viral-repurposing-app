@@ -44,15 +44,18 @@ export default function SubtitledStage(props: StageProps) {
   return (
     <>
       <h2>Finished video</h2>
+      {/* updated_at busts the cache after a re-burn — same reasoning as the
+          voiceover <audio> tag in AudioStage. */}
       <video
+        key={reel.updated_at}
         controls
         style={{ width: "100%", borderRadius: 8 }}
-        src={`/api/reels/${reel.id}/captions/stream`}
+        src={`/api/reels/${reel.id}/captions/stream?v=${encodeURIComponent(reel.updated_at)}`}
       />
       <div className="row" style={{ marginTop: 8 }}>
         <a
           className="secondary button-like"
-          href={`/api/reels/${reel.id}/captions/download`}
+          href={`/api/reels/${reel.id}/captions/download?v=${encodeURIComponent(reel.updated_at)}`}
           download
         >
           Download

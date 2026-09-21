@@ -75,15 +75,20 @@ export default function AudioStage({
 
       {reel.voiceover_status === "success" && (
         <>
+          {/* updated_at busts the cache after a regenerate — the URL is
+              otherwise identical, and the <audio> element won't refetch a
+              src it's already loaded, so a same-session regenerate would
+              silently keep playing the previous take. */}
           <audio
+            key={reel.updated_at}
             controls
             style={{ width: "100%", marginTop: 8 }}
-            src={`/api/reels/${reel.id}/voiceover/stream`}
+            src={`/api/reels/${reel.id}/voiceover/stream?v=${encodeURIComponent(reel.updated_at)}`}
           />
           <div className="row" style={{ marginTop: 8 }}>
             <a
               className="secondary button-like"
-              href={`/api/reels/${reel.id}/voiceover/download`}
+              href={`/api/reels/${reel.id}/voiceover/download?v=${encodeURIComponent(reel.updated_at)}`}
               download
             >
               Download
