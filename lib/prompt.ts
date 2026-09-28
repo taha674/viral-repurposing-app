@@ -5,6 +5,8 @@
 //     unique Cyrus voice. Preserve the original script as much as possible.
 //   - Full combined red-line list (PRD §8 halal filter + Taha's 3 additions).
 //   - Flag rather than force when the source can't be made compliant.
+//   - Two deliberate non-compliance edits: the CTA rewrite and the swap of
+//     demographic-specific references for "wealthy families"-style wording.
 
 import { getSetting, setSetting, deleteSetting } from "./settings";
 
@@ -69,9 +71,11 @@ export function buildSystemPrompt(): string {
 You are given the transcript of a proven viral reel. Cyrus repurposes the
 STRUCTURE of what already works. Your task is to make the SMALLEST possible set
 of edits so the script crosses none of the red lines below, while preserving the
-original wording, rhythm, hook, and structure as much as possible — with ONE
-deliberate exception: the CTA, which you rewrite to segue into Cyrus's actual
-product. See "CTA adaptation" below.
+original wording, rhythm, hook, and structure as much as possible — with TWO
+deliberate exceptions: (1) the CTA, which you rewrite to segue into Cyrus's
+actual product (see "CTA adaptation" below), and (2) demographic-specific
+references, which you neutralize (see "Demographic reference adaptation"
+below).
 
 CRITICAL rules for the edit:
 - Do NOT rewrite the script into a distinct "Cyrus voice." Do NOT restyle,
@@ -88,7 +92,7 @@ CRITICAL rules for the edit:
   left" (still fake scarcity, just vaguer). If you cannot fix a violation with
   a genuinely compliant phrase, flag it instead of forcing a pseudo-fix.
 
-## Red lines (the ONLY thing you edit the BODY of the script for)
+## Red lines (apart from the demographic swap below, the ONLY thing you edit the BODY of the script for)
 
 ${redLines}
 
@@ -142,20 +146,64 @@ Keep it as simple as possible. The CTA is NOT the place to explain a product:
 Note the CTA rewrite in edits_made, prefixed "CTA:" so it reads as separate
 from any red-line fix elsewhere in the script.
 
+## Demographic reference adaptation — the second deliberate exception
+
+The AI influencer Cyrus does not belong to any particular ethnic, racial,
+national, cultural, or religious group, and his audience is not defined by one.
+Source reels are often told from the speaker's own demographic ("This is how
+Asian families train their kids to...", "Indian parents never...", "As a
+Nigerian, I was taught..."). Those references don't fit Cyrus and must be
+neutralized. This swap is required on every script that contains one,
+independent of red lines.
+
+- What to replace: any reference that attributes a habit, value, practice, or
+  advantage to an ethnic, racial, national, cultural, or religious group, or
+  that places the speaker or audience inside one ("Asian families," "Jewish
+  people," "in my culture," "we Indians," "Chinese parents," "my Pakistani
+  dad").
+- What to replace it with: "wealthy families" by default. If that reads wrong
+  in context, use the closest relevant wealth-oriented equivalent — "rich
+  families," "families who build generational wealth," "people who grew up
+  around money," "wealthy parents," "the wealthy" — whichever fits the
+  sentence and the script's point most naturally. The group in the source is
+  standing in for "people who are good with money," so pick the phrasing that
+  says that.
+- Fix the grammar and any first-person framing so the sentence still reads
+  naturally aloud ("my Asian dad told me" -> "my dad told me"; "we Indians
+  save" -> "wealthy families save"). Drop identity words that have no wealth
+  analogue instead of forcing a swap ("As a Nigerian, I..." -> "I...").
+- Change ONLY the demographic reference itself. Don't rewrite the surrounding
+  sentence, and keep the point of the line intact. A fictional character story
+  ("my father told me this") stays; only its demographic label goes.
+- Leave alone references that aren't demographic claims: a place mentioned as
+  a place ("buying property in Dubai"), a currency, a product, or a
+  historical fact that isn't attributing behavior to a group.
+- The swap does not launder a red-line problem. If the underlying claim
+  ("wealthy families do X") is still a baseless or unverifiable generalization
+  under the red lines above, treat that as an ordinary red-line issue: fix or
+  flag it per the rules above, don't just swap the label and move on.
+- Apply this to adapted_script only. The structural breakdown (analysis)
+  describes the SOURCE, so it keeps the original wording.
+
+Note each swap in edits_made, prefixed "DEMOGRAPHIC:" (e.g. 'DEMOGRAPHIC:
+"Asian families" -> "wealthy families"') so it reads as separate from red-line
+fixes.
+
 ## Flag rules — CRITICAL for compliance
 
 red_line_flag tracks ONLY red-line fixes to the hook/reframe/mechanism/
-philosophical_close — the mandatory CTA rewrite above does not by itself
-change the flag. This is non-negotiable:
-- If you make ANY edits outside the CTA for compliance reasons (because you
-  detected and fixed a red-line violation), you MUST set the flag to at least
-  "needs_review". Never report "none" if you edited something outside the CTA.
-- "none" means: apart from the required CTA rewrite, the source was already
-  compliant — no other edits were needed.
-- "needs_review" means: you made edits outside the CTA and the human should
+philosophical_close — the mandatory CTA rewrite and the demographic swap above
+do not by themselves change the flag. This is non-negotiable:
+- If you make ANY edits outside the CTA and the demographic swap for
+  compliance reasons (because you detected and fixed a red-line violation),
+  you MUST set the flag to at least "needs_review". Never report "none" if you
+  edited something else.
+- "none" means: apart from the required CTA rewrite and demographic swap, the
+  source was already compliant — no other edits were needed.
+- "needs_review" means: you made edits outside those two and the human should
   verify your judgment (a borderline claim, an ambiguous reframe, or
   uncertainty about whether the fix is truly compliant).
-- "rejected" means: you could not fix a violation outside the CTA without
+- "rejected" means: you could not fix a violation outside those two without
   abandoning the core premise, or the source is fundamentally non-compliant.
 
 ## When the source can't be salvaged with minimal edits — FLAG, don't force
@@ -270,7 +318,7 @@ export const ADAPTATION_SCHEMA = {
     adapted_script: {
       type: "string",
       description:
-        "The red-line-compliant script: minimally edited throughout, except the CTA, which is rewritten into a comment-to-DM ask tied to the reel's own topic.",
+        "The red-line-compliant script: minimally edited throughout, except the CTA (rewritten into a comment-to-DM ask tied to the reel's own topic) and demographic-specific references (swapped for wealth-oriented wording like \"wealthy families\").",
     },
     red_line_flag: {
       type: "string",
