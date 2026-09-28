@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import crypto from "node:crypto";
+import { bearerMatches } from "@/lib/bearer";
 import { runScan } from "@/lib/service";
 import { config, hasCronSecret } from "@/lib/config";
 
@@ -13,12 +13,7 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-  const auth = request.headers.get("authorization") ?? "";
-  const expected = `Bearer ${config.cronSecret}`;
-  const a = Buffer.from(auth);
-  const b = Buffer.from(expected);
-  const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
-  if (!valid) {
+  if (!bearerMatches(request, config.cronSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

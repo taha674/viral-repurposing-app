@@ -190,6 +190,35 @@ export const config = {
   // purge, that's a signal to resize the volume or archive/burn more reels —
   // not a reason to delete anything else.
   volumePurgeThresholdMb: intEnv("VOLUME_PURGE_THRESHOLD_MB", 500),
+
+  // Instagram DM bot (2026-09-13) — chat control layer, additive to the web
+  // UI. See lib/instagram.ts / lib/instagramCommands.ts.
+  instagramAccessToken: process.env.INSTAGRAM_ACCESS_TOKEN ?? "",
+  instagramBusinessId: process.env.INSTAGRAM_BUSINESS_ID ?? "",
+  instagramApiVersion: process.env.INSTAGRAM_API_VERSION ?? "v21.0",
+  instagramVerifyToken: process.env.INSTAGRAM_VERIFY_TOKEN ?? "",
+  instagramAppSecret: process.env.INSTAGRAM_APP_SECRET ?? "",
+  // The one Instagram-scoped sender ID the bot will act on — every other
+  // sender is dropped (see the webhook route). Single-user tool by design.
+  instagramOwnerIgsid: process.env.INSTAGRAM_OWNER_IGSID ?? "",
+  // Signs the short-lived tokens in /api/instagram/media/[token] links —
+  // separate secret from the app secret so it can be rotated independently.
+  instagramMediaTokenSecret: process.env.INSTAGRAM_MEDIA_TOKEN_SECRET ?? "",
+  // Hard cap on retrying a failed Instagram SEND (message delivery only —
+  // never the underlying pipeline call that triggered the message).
+  instagramMaxRetries: intEnv("INSTAGRAM_MAX_RETRIES", 1),
+  instagramTimeoutMs: intEnv("INSTAGRAM_TIMEOUT_MS", 15_000),
+  // Public origin of this deployment (e.g. the Railway URL), used to build
+  // the signed media links Meta's servers fetch directly.
+  publicBaseUrl: process.env.PUBLIC_BASE_URL ?? "",
+  // MCP server (/api/mcp) for agentic callers such as Hermes. Bearer-token
+  // auth; the route stays closed (500) while this is unset.
+  mcpApiToken: process.env.MCP_API_TOKEN ?? "",
+  // Hard daily caps on agent-triggered paid calls, counted from
+  // agent_actions. Over the cap the tool errors and asks for the operator —
+  // it never queues or retries.
+  mcpDailyPaidCallCap: intEnv("MCP_DAILY_PAID_CALL_CAP", 25),
+  mcpDailyScanCap: intEnv("MCP_DAILY_SCAN_CAP", 2),
 } as const;
 
 export function hasAppPassword(): boolean {
@@ -198,6 +227,10 @@ export function hasAppPassword(): boolean {
 
 export function hasCronSecret(): boolean {
   return config.cronSecret.trim().length > 0;
+}
+
+export function hasMcpToken(): boolean {
+  return config.mcpApiToken.trim().length > 0;
 }
 
 export function hasApify(): boolean {
@@ -212,5 +245,16 @@ export function hasElevenLabs(): boolean {
   return (
     config.elevenlabsKey.trim().length > 0 &&
     config.elevenlabsVoiceId.trim().length > 0
+  );
+}
+
+export function hasInstagram(): boolean {
+  return (
+    config.instagramAccessToken.trim().length > 0 &&
+    config.instagramBusinessId.trim().length > 0 &&
+    config.instagramAppSecret.trim().length > 0 &&
+    config.instagramVerifyToken.trim().length > 0 &&
+    config.instagramOwnerIgsid.trim().length > 0 &&
+    config.instagramMediaTokenSecret.trim().length > 0
   );
 }

@@ -8,7 +8,13 @@ import { verifySessionToken, SESSION_COOKIE } from "@/lib/session";
 // in open-questions.md #10 ("no auth locally").
 // /api/cron/* authenticates itself via a bearer secret (CRON_SECRET) —
 // it has no browser session to check a cookie against.
-const PUBLIC_PATHS = ["/login", "/api/login", "/api/cron"];
+// /api/instagram/* is the same story: Meta calls the webhook directly (self-
+// authenticated via its own signature check, see lib/instagram.ts) and
+// fetches the media route via a short-lived signed token, neither of which
+// carries our session cookie.
+// /api/mcp/* likewise: Hermes calls it with a bearer token (MCP_API_TOKEN),
+// and the upload route with a short-lived signed token — see lib/mcp.
+const PUBLIC_PATHS = ["/login", "/api/login", "/api/cron", "/api/instagram", "/api/mcp"];
 
 export function proxy(req: NextRequest) {
   if (!hasAppPassword()) return NextResponse.next();

@@ -134,6 +134,21 @@ async function ensureSchema(pool: Pool): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    -- Audit trail for the MCP server (lib/mcp): every mutating tool call,
+    -- with the agent's rationale. Also the source of truth for the daily
+    -- paid-call caps.
+    CREATE TABLE IF NOT EXISTS agent_actions (
+      id        SERIAL PRIMARY KEY,
+      at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      tool      TEXT NOT NULL,
+      reel_id   INTEGER,
+      args      JSONB,
+      rationale TEXT,
+      ok        BOOLEAN NOT NULL,
+      error     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_actions_at ON agent_actions(at);
+
     CREATE INDEX IF NOT EXISTS idx_reels_status ON reels(status);
     CREATE INDEX IF NOT EXISTS idx_reels_account ON reels(account_id);
 
@@ -178,6 +193,17 @@ async function ensureSchema(pool: Pool): Promise<void> {
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS publish_pack JSONB;
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS publish_pack_status TEXT NOT NULL DEFAULT 'none';
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS publish_pack_error TEXT;
+
+    -- Instagram DM bot (2026-09-13): dedupes webhook deliveries by Meta
+    -- message id. Meta redelivers events it doesn't get a fast 2xx for, and
+    -- several of the commands this table guards trigger paid API calls
+    -- (generateVoiceover, burnCaptions's transcription fallback) — without
+    -- this, a redelivered "accept" tap could double-spend. See
+    -- app/api/instagram/webhook/route.ts.
+    CREATE TABLE IF NOT EXISTS bot_processed_messages (
+      message_id  TEXT PRIMARY KEY,
+      processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 
   await seedAccounts(pool);

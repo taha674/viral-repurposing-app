@@ -44,6 +44,37 @@ called by a Railway cron service — see `../tasks.md` for the schedule.
 - **Adaptation**: manual "Run adaptation" → source breakdown + minimally-edited compliant script + red-line flag. The prompt lives in [`lib/prompt.ts`](lib/prompt.ts) (written fresh, enforces the full 9-item red-line list; minimal edits, **no** Cyrus-voice rewrite).
 - **Review**: inline-edit transcript & script, **Approve**, **Copy script**, **Archive**.
 
+## MCP server (agentic control, e.g. Hermes)
+
+`POST /api/mcp` is a stateless Streamable-HTTP MCP endpoint that exposes the
+same controls as the web UI as 29 tools: discovery (accounts, hashtags, scans),
+triage, adaptation, approval, voiceover, video hand-off, subtitle burn and the
+publish-pack suggestions. Start with `get_pipeline_overview`; `get_reel`
+returns `allowed_actions`, the tools that are legal for that reel right now.
+
+Setup: set `MCP_API_TOKEN` (generate with `openssl rand -hex 32`)
+as a Railway variable, plus `PUBLIC_BASE_URL` (used to build the signed media
+and upload links). Nothing from the Instagram bot config is needed. The endpoint stays closed
+(500) while the token is unset. Then point Hermes at it in `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  cyrus_reels:
+    url: "https://<railway-app>/api/mcp"
+    headers:
+      Authorization: "Bearer ${CYRUS_MCP_TOKEN}"   # set in ~/.hermes/.env
+    timeout: 600          # voiceover / burn / scan run synchronously
+    connect_timeout: 30
+```
+
+Guardrails, enforced server-side (see the 2026-09-29 note in the root `CLAUDE.md`):
+the agent can approve only `red_line_flag = none` scripts; `needs_review` needs
+`operator_confirmed` + the operator's quoted Telegram reply; `rejected` can never
+be approved by the agent. Every mutating call is logged to `agent_actions`. Paid
+tools are capped per day (`MCP_DAILY_PAID_CALL_CAP`, `MCP_DAILY_SCAN_CAP`) and
+refuse rather than retry. Not exposed: posting, archive, prompt editing, storage
+purge, reveal-in-Finder.
+
 ## Guardrails (per project rules)
 
 - Human approval gate: adaptation is manual; nothing auto-approves or auto-publishes.
