@@ -13,6 +13,7 @@ import {
   acceptReel,
   addManualReel,
   adaptReel,
+  archiveReel,
   burnCaptions,
   generatePublishPack,
   generateVoiceover,
@@ -92,7 +93,7 @@ function allowedActions(reel: Reel): string[] {
       a.push("reject_reel", "move_back");
       break;
     case "captioned":
-      a.push("get_media_links", "generate_publish_pack", "edit_reel", "reject_reel", "move_back");
+      a.push("get_media_links", "generate_publish_pack", "edit_reel", "reject_reel", "move_back", "archive_reel");
       break;
     case "rejected":
     case "archived":
@@ -435,6 +436,40 @@ export function registerTools(server: McpServer): void {
       }
       await withAudit("reject_reel", "write", { reelId: id, args: { id }, rationale: reason }, () => setStatus(id, "rejected"));
       return presentReel(await mustGet(id));
+    })
+  );
+
+  server.registerTool(
+    "archive_reel",
+    {
+      description:
+        "Archive a finished (Subtitled-stage) reel as posted. IRREVERSIBLE FILE DELETE: this permanently purges the reel's whole file folder (voiceover, source video, subtitled video) from disk to reclaim volume space — not just a kanban move. Only the adapted script/publish pack text survives in the DB; restore_reel can bring the reel row back but NOT its files. " +
+        "Because this destroys data, the agent must ALWAYS get explicit operator confirmation on Telegram first (never infer 'this was probably posted') and pass operator_confirmed=true with confirmation_note quoting their reply — the call is refused otherwise, regardless of stage or red_line_flag.",
+      inputSchema: {
+        id: reelId,
+        rationale: z.string().min(1).describe("Why this reel is being archived now (e.g. confirmed posted to Instagram)"),
+        operator_confirmed: z.boolean(),
+        confirmation_note: z.string().min(1).describe("The operator's Telegram reply, quoted"),
+      },
+    },
+    safe(async ({ id, rationale, operator_confirmed, confirmation_note }) => {
+      return presentReel(
+        await withAudit(
+          "archive_reel",
+          "write",
+          { reelId: id, args: { id, operator_confirmed, confirmation_note }, rationale },
+          async () => {
+            if (!operator_confirmed || !confirmation_note.trim()) {
+              throw new Error(
+                `Archiving reel ${id} permanently deletes its files. Ask the operator on Telegram first, then re-call with operator_confirmed=true and confirmation_note set to their reply.`
+              );
+            }
+            const reel = await mustGet(id);
+            if (reel.status === "archived") throw new Error(`Reel ${id} is already archived.`);
+            return archiveReel(id);
+          }
+        )
+      );
     })
   );
 
