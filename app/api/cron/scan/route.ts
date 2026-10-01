@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { bearerMatches } from "@/lib/bearer";
 import { runScan } from "@/lib/service";
 import { config, hasCronSecret } from "@/lib/config";
+import { isScheduledScanEnabled } from "@/lib/scanSettings";
 
 // Scheduled-scan trigger, hit by a Railway cron service (weekly, Monday
 // 6am US Eastern — see tasks.md). Not gated by the browser password/cookie
@@ -15,6 +16,12 @@ export async function POST(request: Request) {
   }
   if (!bearerMatches(request, config.cronSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Operator switch (Settings → Scan). Returns 200 so the GitHub Actions
+  // curl -f doesn't report the skipped week as a failed run.
+  if (!(await isScheduledScanEnabled())) {
+    return NextResponse.json({ skipped: "Scheduled scan is disabled in Settings." });
   }
 
   try {

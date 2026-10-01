@@ -110,6 +110,178 @@ function StoragePanel() {
   );
 }
 
+type ScanLimits = {
+  minNewReelsPerRun: number;
+  batchPerAccount: number;
+  postsPerAccount: number;
+  postsPerHashtag: number;
+};
+
+type ScanInfo = {
+  scheduledEnabled: boolean;
+  limits: ScanLimits;
+  defaults: ScanLimits;
+  max: ScanLimits;
+};
+
+const SCAN_FIELDS: { key: keyof ScanLimits; label: string; hint: string }[] = [
+  {
+    key: "minNewReelsPerRun",
+    label: "New reels per scan",
+    hint: "Total cap per run. Each one costs a paid Apify transcript pull — this is the main spend lever.",
+  },
+  {
+    key: "batchPerAccount",
+    label: "Reels per account per turn",
+    hint: "Accounts take turns giving up this many new reels (highest-viewed first) until the cap above is met.",
+  },
+  {
+    key: "postsPerAccount",
+    label: "Posts pulled per account",
+    hint: "Metadata-only sweep of each tracked account's recent posts.",
+  },
+  {
+    key: "postsPerHashtag",
+    label: "Reels pulled per hashtag",
+    hint: "Top reels fetched per tracked hashtag before filtering.",
+  },
+];
+
+// Scan panel: on/off for the weekly scheduled scan (manual "Run scan now" is
+// unaffected) and the limits every scan run uses. Scheduled scanning is off
+// until switched on here.
+function ScanPanel() {
+  const [info, setInfo] = useState<ScanInfo | null>(null);
+  const [draft, setDraft] = useState<Record<keyof ScanLimits, string> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState("");
+
+  const apply = useCallback((data: ScanInfo) => {
+    setInfo(data);
+    setDraft({
+      minNewReelsPerRun: String(data.limits.minNewReelsPerRun),
+      batchPerAccount: String(data.limits.batchPerAccount),
+      postsPerAccount: String(data.limits.postsPerAccount),
+      postsPerHashtag: String(data.limits.postsPerHashtag),
+    });
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/settings/scan")
+      .then((r) => r.json())
+      .then(apply)
+      .catch(() => {});
+  }, [apply]);
+
+  async function send(method: "PUT" | "DELETE", body?: unknown, okMsg = "Saved.") {
+    setErr("");
+    setNote("");
+    setBusy(true);
+    const res = await fetch("/api/settings/scan", {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setErr(data.error ?? "Failed to save");
+      return;
+    }
+    apply(data);
+    setNote(okMsg);
+  }
+
+  if (!info || !draft) return null;
+
+  return (
+    <div className="card" style={{ marginTop: 24 }}>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+        <div>
+          <h2 style={{ marginBottom: 2 }}>Scan</h2>
+          <span className="muted">
+            Weekly scheduled scan{" "}
+            {info.scheduledEnabled ? (
+              <span className="badge amber">on</span>
+            ) : (
+              <span className="badge">off</span>
+            )}
+          </span>
+        </div>
+        <button
+          className={info.scheduledEnabled ? "secondary" : ""}
+          disabled={busy}
+          onClick={() =>
+            send(
+              "PUT",
+              { scheduledEnabled: !info.scheduledEnabled },
+              info.scheduledEnabled
+                ? "Scheduled scan turned off."
+                : "Scheduled scan turned on — next run is Monday."
+            )
+          }
+        >
+          {info.scheduledEnabled ? "Turn off" : "Turn on"}
+        </button>
+      </div>
+      <p className="muted">
+        Off skips the Monday run entirely (no Apify calls). &ldquo;Run scan
+        now&rdquo; still works. The limits below apply to every scan, scheduled
+        or manual.
+      </p>
+
+      {SCAN_FIELDS.map((f) => (
+        <div key={f.key} style={{ marginBottom: 10 }}>
+          <label style={{ display: "block", fontWeight: 600 }}>
+            {f.label}{" "}
+            <span className="muted" style={{ fontWeight: 400 }}>
+              (default {info.defaults[f.key]}, max {info.max[f.key]})
+            </span>
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={info.max[f.key]}
+            value={draft[f.key]}
+            onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+            style={{ width: 120 }}
+          />
+          <div className="muted">{f.hint}</div>
+        </div>
+      ))}
+
+      <div className="row">
+        <button
+          disabled={busy}
+          onClick={() =>
+            send(
+              "PUT",
+              {
+                limits: Object.fromEntries(
+                  SCAN_FIELDS.map((f) => [f.key, Number(draft[f.key])])
+                ),
+              },
+              "Saved. Applies to the next scan."
+            )
+          }
+        >
+          Save limits
+        </button>
+        <button
+          className="secondary"
+          disabled={busy}
+          onClick={() => send("DELETE", undefined, "Reset to defaults.")}
+        >
+          Reset to defaults
+        </button>
+      </div>
+      {note && <p className="ok">{note}</p>}
+      {err && <p className="error">{err}</p>}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [which, setWhich] = useState<PromptKey>("adaptation");
   const [prompt, setPrompt] = useState("");
@@ -245,6 +417,8 @@ export default function SettingsPage() {
         {msg && <p className="ok">{msg}</p>}
         {err && <p className="error">{err}</p>}
       </div>
+
+      <ScanPanel />
 
       <StoragePanel />
     </div>

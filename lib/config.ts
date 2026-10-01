@@ -101,7 +101,7 @@ export const config = {
   // loops once accounts genuinely have nothing left to give. Each admitted
   // reel costs a paid Apify transcript pull, so this doubles as the hard cap
   // on that spend for one scan run.
-  scanMinNewReelsPerRun: intEnv("SCAN_MIN_NEW_REELS_PER_RUN", 15),
+  scanMinNewReelsPerRun: intEnv("SCAN_MIN_NEW_REELS_PER_RUN", 10),
   // Top reels pulled per hashtag during a hashtag scan (before the view-count
   // and talking-head filters run) — separate knob since hashtag volume/noise
   // is very different from a tracked account's own post history.

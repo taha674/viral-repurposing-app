@@ -189,10 +189,13 @@ async function runActor(
 // avoids that ambiguity entirely, and costs nothing extra — the original
 // volume estimate in reference-inputs.md already assumed the full per-account
 // pull, not a filtered subset.
-export async function scanAccount(handle: string): Promise<ScrapedReel[]> {
+export async function scanAccount(
+  handle: string,
+  limit: number = config.scanPostsPerAccount
+): Promise<ScrapedReel[]> {
   const input: Record<string, unknown> = {
     username: [handle],
-    resultsLimit: config.scanPostsPerAccount,
+    resultsLimit: limit,
     includeTranscript: false,
     includeDownloadedVideo: false,
     includeSharesCount: false,
@@ -233,11 +236,14 @@ export async function fetchReel(url: string): Promise<ScrapedReel | null> {
 // actor's output at all — a qualifying, format-matching candidate still goes
 // through fetchReel() afterwards for the transcript, exactly like an
 // account-scan qualifier does.
-export async function scanHashtag(tag: string): Promise<ScrapedReel[]> {
+export async function scanHashtag(
+  tag: string,
+  limit: number = config.scanPostsPerHashtag
+): Promise<ScrapedReel[]> {
   const input: Record<string, unknown> = {
     hashtags: [tag],
     resultsType: "reels",
-    resultsLimit: config.scanPostsPerHashtag,
+    resultsLimit: limit,
   };
   return runActor(config.apifyHashtagActor, input);
 }

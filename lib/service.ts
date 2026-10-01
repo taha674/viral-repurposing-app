@@ -27,6 +27,7 @@ import {
   parseAnalysis,
 } from "./reels";
 import { baseSlug, reelFileName } from "./naming";
+import { getScanLimits } from "./scanSettings";
 import { scanAccount, scanHashtag, fetchReel, captionBody, type ScrapedReel } from "./apify";
 import { runAdaptation, classifyTalkingHead, runPublishPack } from "./gemini";
 import type { CoverCandidate } from "./publishPrompt";
@@ -823,13 +824,14 @@ interface AccountQueue {
 // down each account's ranking — no separate cursor needs to be persisted.
 async function scanTrackedAccounts(): Promise<{ count: number; newReels: number; errors: number }> {
   const accounts = (await listAccounts()).filter((a) => a.active === 1);
+  const limits = await getScanLimits();
 
   let errors = 0;
   const queues: AccountQueue[] = [];
 
   for (const account of accounts) {
     try {
-      const scraped = await scanAccount(account.handle);
+      const scraped = await scanAccount(account.handle, limits.postsPerAccount);
       const ranked = scraped
         .filter((r) => r.url)
         .sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
@@ -850,13 +852,13 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
 
   let totalNew = 0;
   let anyRemaining = queues.some((q) => q.cursor < q.candidates.length);
-  while (totalNew < config.scanMinNewReelsPerRun && anyRemaining) {
+  while (totalNew < limits.minNewReelsPerRun && anyRemaining) {
     anyRemaining = false;
     for (const q of queues) {
-      if (totalNew >= config.scanMinNewReelsPerRun) break;
+      if (totalNew >= limits.minNewReelsPerRun) break;
       if (q.cursor >= q.candidates.length) continue;
 
-      const roundEnd = Math.min(q.cursor + config.scanBatchPerAccount, q.candidates.length);
+      const roundEnd = Math.min(q.cursor + limits.batchPerAccount, q.candidates.length);
       for (; q.cursor < roundEnd; q.cursor++) {
         const r = q.candidates[q.cursor];
         const reel = await insertReel({
@@ -913,13 +915,14 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
 // sink the rest of the hashtag's results.
 async function scanTrackedHashtags(): Promise<{ count: number; newReels: number; errors: number }> {
   const hashtags = (await listHashtags()).filter((h) => h.active === 1);
+  const limits = await getScanLimits();
 
   let newReels = 0;
   let errors = 0;
 
   for (const hashtag of hashtags) {
     try {
-      const scraped = await scanHashtag(hashtag.tag);
+      const scraped = await scanHashtag(hashtag.tag, limits.postsPerHashtag);
       const qualifying = scraped.filter(
         (r) => r.views !== null && r.views >= config.viewThreshold && r.url
       );
