@@ -706,6 +706,16 @@ export interface ManualAddResult {
 // Statuses both schedule_item and mark_posted accept.
 const SCHEDULE_OR_POST_FROM: Reel["status"][] = ["captioned", "scheduled"];
 
+// Unscheduling returns the item to its finished state; advanceStatus clears
+// the planned time.
+export async function unscheduleItem(reelId: number): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.status !== "scheduled") throw new Error(`Reel ${reelId} is "${reel.status}", not scheduled.`);
+  await advanceStatus(reelId, "captioned");
+  return (await getReel(reelId))!;
+}
+
 export async function scheduleItem(reelId: number, plannedAt: string): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);

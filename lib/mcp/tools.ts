@@ -9,12 +9,14 @@ import {
   advanceStatus,
   updateEditable,
   setHook,
+  listScheduled,
 } from "../reels";
 import {
   acceptReel,
   addManualReel,
   addOriginal,
   scheduleItem,
+  unscheduleItem,
   markPosted,
   adaptReel,
   archiveReel,
@@ -108,7 +110,7 @@ function allowedActions(reel: Reel): string[] {
       a.push("get_media_links", "generate_publish_pack", "edit_reel", "schedule_item", "mark_posted", "reject_reel", "move_back", "archive_reel");
       break;
     case "scheduled":
-      a.push("get_media_links", "edit_reel", "schedule_item", "mark_posted", "move_back");
+      a.push("get_media_links", "edit_reel", "schedule_item", "unschedule_item", "mark_posted", "move_back");
       break;
     case "posted":
       a.push("get_media_links", "mark_posted", "move_back", "archive_reel");
@@ -131,6 +133,29 @@ function presentReel(reel: Reel) {
     stage: stageOf(reel),
     analysis: parseAnalysis(reel),
     allowed_actions: allowedActions(reel),
+  };
+}
+
+// What Hermes hands the operator for one ready post. A missing publish pack
+// is reported, not invented.
+function readyPost(reel: Reel) {
+  const pack = reel.publish_pack;
+  return {
+    id: reel.id,
+    brand: reel.brand,
+    hook: reel.hook,
+    slug: reel.slug,
+    planned_post_at: reel.planned_post_at,
+    files: {
+      video_url: reel.captions_status === "success" && reel.captions_video_path ? mcpMediaUrl(reel.id, "video") : null,
+      expires_in_minutes: 10,
+    },
+    caption: pack?.caption ?? null,
+    hashtags: pack?.hashtags ?? [],
+    cover_text: pack?.thumbnail_text.map((t) => t.text) ?? [],
+    cover_frame_seconds: pack?.cover_frame_seconds ?? null,
+    hook_mode: pack?.hook_mode ?? null,
+    missing: pack ? [] : ["publish_pack"],
   };
 }
 
@@ -601,6 +626,37 @@ export function registerTools(server: McpServer): void {
         )
       )
     )
+  );
+
+  server.registerTool(
+    "unschedule_item",
+    {
+      description: "Take a Scheduled item off the schedule, back to its finished column (planned time cleared). Nothing else changes.",
+      inputSchema: { id: reelId, rationale: z.string().min(1) },
+    },
+    safe(async ({ id, rationale }) =>
+      presentReel(await withAudit("unschedule_item", "write", { reelId: id, args: { id }, rationale }, () => unscheduleItem(id)))
+    )
+  );
+
+  server.registerTool(
+    "list_ready_posts",
+    {
+      description:
+        "Ready posts: Scheduled items due in a time window (default: the last 24 hours, for anything overdue, to the next 24), soonest first, each with everything the operator needs to post by hand: a signed file link (10 min), caption, hashtags and cover text from the publish pack. The app never posts.",
+      inputSchema: {
+        from: z.string().optional().describe("ISO 8601 date-time; default now minus 24h"),
+        to: z.string().optional().describe("ISO 8601 date-time; default now plus 24h"),
+        brand: brandArg,
+      },
+    },
+    safe(async ({ from, to, brand }) => {
+      const now = Date.now();
+      const start = new Date(from ?? now - 864e5);
+      const end = new Date(to ?? now + 864e5);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) throw new Error("from/to must be ISO date-times.");
+      return (await listScheduled(start, end, brand)).map(readyPost);
+    })
   );
 
   server.registerTool(

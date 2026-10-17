@@ -79,6 +79,7 @@ export async function start() {
       TREG_TOKEN: "",
       APP_PASSWORD: "",
       REELS_OUTPUT_DIR: REELS_DIR,
+      PUBLIC_BASE_URL: BASE,
     },
   });
   let log = "";

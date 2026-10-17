@@ -440,6 +440,20 @@ export async function setHook(id: number, hook: Hook | null): Promise<void> {
   await touch(id);
 }
 
+// Scheduled items due in [from, to], soonest first, full rows (the ready-post
+// payload needs the publish pack).
+export async function listScheduled(from: Date, to: Date, brand?: Brand): Promise<Reel[]> {
+  const pool = await getPool();
+  const { rows } = await pool.query<Reel>(
+    `SELECT *, ${POST_LINKS_JSON} FROM reels
+      WHERE status = 'scheduled' AND planned_post_at BETWEEN $1 AND $2
+        AND ($3::text IS NULL OR brand = $3)
+      ORDER BY planned_post_at`,
+    [from.toISOString(), to.toISOString(), brand ?? null]
+  );
+  return rows;
+}
+
 export async function setSchedule(id: number, plannedAt: Date): Promise<void> {
   const pool = await getPool();
   await pool.query(
