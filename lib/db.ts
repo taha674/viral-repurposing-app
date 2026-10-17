@@ -239,6 +239,27 @@ async function ensureSchema(pool: Pool): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_provider_spend_at ON provider_spend(at);
 
+    -- Engagement queue (ticket 13): drafts the operator approves and sends
+    -- by hand. lib/engagement.ts.
+    CREATE TABLE IF NOT EXISTS engagement (
+      id                SERIAL PRIMARY KEY,
+      brand             TEXT NOT NULL,
+      reel_id           INTEGER REFERENCES reels(id) ON DELETE SET NULL,
+      kind              TEXT NOT NULL,
+      platform          TEXT NOT NULL,
+      target_url        TEXT NOT NULL,
+      context           TEXT NOT NULL,
+      draft             TEXT NOT NULL,
+      approved_text     TEXT,
+      status            TEXT NOT NULL DEFAULT 'draft',
+      rationale         TEXT NOT NULL,
+      confirmation_note TEXT,
+      drop_reason       TEXT,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      approved_at       TIMESTAMPTZ,
+      sent_at           TIMESTAMPTZ
+    );
+
     -- One live link per platform an item went out on (ticket 08), so a
     -- cross-post is tracked on one item. Replaces reels.posted_url.
     CREATE TABLE IF NOT EXISTS post_links (

@@ -7,6 +7,7 @@ import styles from "./board.module.css";
 import BoardToolbar from "./components/BoardToolbar";
 import BoardColumn from "./components/BoardColumn";
 import Trays from "./components/Trays";
+import EngagementTray from "./components/EngagementTray";
 import AddReelDialog from "./components/AddReelDialog";
 import StageModal from "./components/StageModal";
 import { currentBrand } from "./BrandSwitcher";
@@ -109,6 +110,7 @@ export default function Board() {
       </div>
 
       <Trays rejected={rejected} done={done} onRestore={restore} busyId={busyId} />
+      <EngagementTray />
 
       {addOpen && (
         <AddReelDialog

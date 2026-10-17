@@ -80,6 +80,8 @@ export async function start() {
       APP_PASSWORD: "",
       REELS_OUTPUT_DIR: REELS_DIR,
       PUBLIC_BASE_URL: BASE,
+      // A tiny cap on one platform so the cap refusal is testable.
+      ENGAGEMENT_DAILY_CAPS: "x=2",
     },
   });
   let log = "";

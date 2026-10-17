@@ -42,6 +42,18 @@ import { withAudit } from "./audit";
 import { downloadVideo } from "./download";
 import { uploadUrl } from "./uploadToken";
 import { BRANDS, parseBrand } from "../brands";
+import {
+  ENGAGEMENT_KINDS,
+  ENGAGEMENT_PLATFORMS,
+  approveEngagement,
+  draftEngagement,
+  dropEngagement,
+  listEngagement,
+  markSent,
+  type EngagementPlatform,
+  type EngagementKind,
+  type EngagementStatus,
+} from "../engagement";
 
 // --- helpers -------------------------------------------------------------
 
@@ -493,6 +505,89 @@ export function registerTools(server: McpServer): void {
         )
       )
     )
+  );
+
+  // ---- Engagement queue (no send tool: the operator sends by hand) ----
+  server.registerTool(
+    "draft_engagement",
+    {
+      description:
+        "Save a drafted reply, comment or DM for the operator to approve: platform, the link it answers, the text it answers (context), your draft and why. Capped per platform per day. The app never sends; the operator pastes it by hand after approve_engagement.",
+      inputSchema: {
+        brand: brandArg,
+        kind: z.enum(ENGAGEMENT_KINDS as [string, ...string[]]),
+        platform: z.enum(ENGAGEMENT_PLATFORMS),
+        target_url: z.string().url(),
+        context: z.string().min(1).describe("The post or comment this answers, quoted"),
+        draft: z.string().min(1),
+        reel_id: z.number().int().positive().optional().describe("Board item it promotes, if any"),
+        rationale: z.string().min(1),
+      },
+    },
+    safe(async ({ brand, kind, platform, target_url, context, draft, reel_id, rationale }) =>
+      withAudit("draft_engagement", "write", { reelId: reel_id ?? null, args: { brand, kind, platform, target_url }, rationale }, () =>
+        draftEngagement({
+          brand: parseBrand(brand), kind: kind as EngagementKind, platform: platform as EngagementPlatform,
+          target_url, context, draft, reel_id, rationale,
+        })
+      )
+    )
+  );
+
+  server.registerTool(
+    "list_engagement",
+    {
+      description:
+        "Engagement drafts, oldest first. `id` is the stable number to quote to the operator (\"#12\"). Status: draft, approved, sent, dropped, or expired (approved over 48h ago and never sent).",
+      inputSchema: { brand: brandArg, status: z.enum(["draft", "approved", "sent", "dropped", "expired"]).optional() },
+    },
+    safe(async ({ brand, status }) => listEngagement({ brand, status: status as EngagementStatus | undefined }))
+  );
+
+  server.registerTool(
+    "approve_engagement",
+    {
+      description:
+        "APPROVAL GATE for an engagement draft. ALWAYS ask the operator on Telegram first (show the context and draft); pass operator_confirmed=true and confirmation_note quoting their reply, and approved_text if they changed the wording (it is kept as approved). Refused otherwise. Approval does not send anything.",
+      inputSchema: {
+        id: z.number().int().positive(),
+        rationale: z.string().min(1),
+        operator_confirmed: z.boolean(),
+        confirmation_note: z.string().min(1).describe("The operator's Telegram reply, quoted"),
+        approved_text: z.string().optional().describe("The wording the operator approved, if they edited it"),
+      },
+    },
+    safe(async ({ id, rationale, operator_confirmed, confirmation_note, approved_text }) =>
+      withAudit("approve_engagement", "write", { args: { id, operator_confirmed, confirmation_note, edited: approved_text !== undefined }, rationale }, async () => {
+        if (!operator_confirmed || !confirmation_note.trim()) {
+          throw new Error(
+            `Approving draft ${id} needs the operator's word. Ask on Telegram, then re-call with operator_confirmed=true and confirmation_note quoting their reply.`
+          );
+        }
+        return approveEngagement(id, approved_text ?? null, confirmation_note);
+      })
+    )
+  );
+
+  server.registerTool(
+    "drop_engagement",
+    {
+      description: "Drop an engagement draft with a reason (stale thread, the operator said no, off-brand).",
+      inputSchema: { id: z.number().int().positive(), reason: z.string().min(1) },
+    },
+    safe(async ({ id, reason }) =>
+      withAudit("drop_engagement", "write", { args: { id }, rationale: reason }, () => dropEngagement(id, reason))
+    )
+  );
+
+  server.registerTool(
+    "mark_sent",
+    {
+      description:
+        "Record that the OPERATOR pasted and sent an approved draft by hand. Only after they say so. Refused for a draft that is not approved or expired (approved over 48h ago).",
+      inputSchema: { id: z.number().int().positive(), rationale: z.string().min(1).describe("How you know it was sent, e.g. the operator's reply") },
+    },
+    safe(async ({ id, rationale }) => withAudit("mark_sent", "write", { args: { id }, rationale }, () => markSent(id)))
   );
 
   server.registerTool(
