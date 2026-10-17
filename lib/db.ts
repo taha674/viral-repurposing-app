@@ -220,8 +220,27 @@ async function ensureSchema(pool: Pool): Promise<void> {
     -- Schedule and posted (2026-10-18). Recorded by the operator or Hermes;
     -- the app never posts. Posted is its own status, never 'archived'.
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS planned_post_at TIMESTAMPTZ;
-    ALTER TABLE reels ADD COLUMN IF NOT EXISTS posted_url TEXT;
-    ALTER TABLE reels ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ;
+
+    -- One live link per platform an item went out on (ticket 08), so a
+    -- cross-post is tracked on one item. Replaces reels.posted_url.
+    CREATE TABLE IF NOT EXISTS post_links (
+      id        SERIAL PRIMARY KEY,
+      reel_id   INTEGER NOT NULL REFERENCES reels(id) ON DELETE CASCADE,
+      platform  TEXT NOT NULL,
+      url       TEXT NOT NULL,
+      posted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (reel_id, platform)
+    );
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name = 'reels' AND column_name = 'posted_url') THEN
+        INSERT INTO post_links (reel_id, platform, url, posted_at)
+          SELECT id, 'instagram', posted_url, COALESCE(posted_at, now())
+            FROM reels WHERE posted_url IS NOT NULL
+          ON CONFLICT (reel_id, platform) DO NOTHING;
+        ALTER TABLE reels DROP COLUMN posted_url, DROP COLUMN posted_at;
+      END IF;
+    END $$;
   `);
 
   await seedAccounts(pool);

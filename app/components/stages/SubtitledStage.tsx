@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { StageProps } from "../stageTypes";
+import { POST_PLATFORMS, PLATFORM_LABELS, type PostPlatform } from "@/lib/types";
 import PublishPackPanel from "../PublishPackPanel";
 
 // Column 6 (Subtitled). The finished, metadata-stripped file, plus the
@@ -15,24 +16,28 @@ export default function SubtitledStage(props: StageProps) {
   const [plannedAt, setPlannedAt] = useState(
     reel.planned_post_at ? toLocalInput(reel.planned_post_at) : ""
   );
-  const [postedUrl, setPostedUrl] = useState(reel.posted_url ?? "");
+  const [platform, setPlatform] = useState<PostPlatform>("instagram");
+  const [postedUrl, setPostedUrl] = useState("");
 
   // Schedule / posted are bookkeeping: the operator publishes by hand.
-  async function save(field: "planned_post_at" | "posted_url", value: string) {
+  async function save(field: "planned_post_at" | "post_link") {
     setErr("");
     setBusy(field);
     const res = await fetch(`/api/reels/${reel.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        [field]: field === "planned_post_at" ? new Date(value).toISOString() : value,
-      }),
+      body: JSON.stringify(
+        field === "planned_post_at"
+          ? { planned_post_at: new Date(plannedAt).toISOString() }
+          : { post_link: { platform, url: postedUrl } }
+      ),
     });
     setBusy("");
     if (!res.ok) {
       setErr((await res.json()).error ?? "Failed to save");
       return;
     }
+    if (field === "post_link") setPostedUrl("");
     await reload();
     onBoardChange();
   }
@@ -90,7 +95,7 @@ export default function SubtitledStage(props: StageProps) {
 
       <PublishPackPanel {...props} />
 
-      {reel.status !== "posted" ? (
+      {reel.status !== "posted" && (
         <div className="row" style={{ marginTop: 16, gap: 8, flexWrap: "wrap" }}>
           <input
             type="datetime-local"
@@ -100,34 +105,53 @@ export default function SubtitledStage(props: StageProps) {
           />
           <button
             className="secondary"
-            onClick={() => save("planned_post_at", plannedAt)}
+            onClick={() => save("planned_post_at")}
             disabled={!plannedAt || busy === "planned_post_at"}
           >
             {reel.status === "scheduled" ? "Reschedule" : "Schedule"}
           </button>
-          <input
-            type="url"
-            placeholder="https://www.instagram.com/reel/…"
-            value={postedUrl}
-            onChange={(e) => setPostedUrl(e.target.value)}
-            aria-label="Live post URL"
-          />
-          <button
-            className="secondary"
-            onClick={() => save("posted_url", postedUrl)}
-            disabled={!postedUrl.trim() || busy === "posted_url"}
-          >
-            Mark posted
-          </button>
         </div>
-      ) : (
-        <p className="muted" style={{ marginTop: 16 }}>
-          Posted:{" "}
-          <a href={reel.posted_url ?? undefined} target="_blank" rel="noreferrer">
-            {reel.posted_url}
-          </a>
-        </p>
       )}
+
+      {reel.post_links.length > 0 && (
+        <ul className="muted" style={{ marginTop: 16 }}>
+          {reel.post_links.map((l) => (
+            <li key={l.platform}>
+              {PLATFORM_LABELS[l.platform]}:{" "}
+              <a href={l.url} target="_blank" rel="noreferrer">
+                {l.url}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="row" style={{ marginTop: 8, gap: 8, flexWrap: "wrap" }}>
+        <select
+          value={platform}
+          onChange={(e) => setPlatform(e.target.value as PostPlatform)}
+          aria-label="Platform"
+        >
+          {POST_PLATFORMS.map((p) => (
+            <option key={p} value={p}>
+              {PLATFORM_LABELS[p]}
+            </option>
+          ))}
+        </select>
+        <input
+          type="url"
+          placeholder="https://… link to the live post"
+          value={postedUrl}
+          onChange={(e) => setPostedUrl(e.target.value)}
+          aria-label="Live post URL"
+        />
+        <button
+          className="secondary"
+          onClick={() => save("post_link")}
+          disabled={!postedUrl.trim() || busy === "post_link"}
+        >
+          {reel.status === "posted" ? "Add link" : "Mark posted"}
+        </button>
+      </div>
 
       <div className="row" style={{ marginTop: 16 }}>
         <button onClick={archive} disabled={busy === "archive"}>

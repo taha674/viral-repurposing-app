@@ -32,7 +32,7 @@ import { listScanLogs } from "../scanLogs";
 import { STAGES, stageOf, backTargetStatus } from "../stages";
 import type { Stage } from "../stages";
 import { mcpMediaUrl } from "./mediaToken";
-import { HOOKS, type Brand, type Hook, type Reel, type PublishPack } from "../types";
+import { HOOKS, POST_PLATFORMS, type Brand, type Hook, type Reel, type PublishPack } from "../types";
 import { withAudit } from "./audit";
 import { downloadVideo } from "./download";
 import { uploadUrl } from "./uploadToken";
@@ -111,7 +111,7 @@ function allowedActions(reel: Reel): string[] {
       a.push("get_media_links", "edit_reel", "schedule_item", "mark_posted", "move_back");
       break;
     case "posted":
-      a.push("get_media_links", "move_back", "archive_reel");
+      a.push("get_media_links", "mark_posted", "move_back", "archive_reel");
       break;
     case "rejected":
     case "archived":
@@ -207,7 +207,7 @@ export function registerTools(server: McpServer): void {
         source: r.source,
         hook: r.hook,
         planned_post_at: r.planned_post_at,
-        posted_url: r.posted_url,
+        post_links: r.post_links,
         slug: r.slug,
         transcript_status: r.transcript_status,
         voiceover_status: r.voiceover_status,
@@ -592,16 +592,34 @@ export function registerTools(server: McpServer): void {
     "mark_posted",
     {
       description:
-        "Record that the OPERATOR published this item by hand (Subtitled/Scheduled → Posted), with the live post's https URL. Only call after the operator says it is live and gives or confirms the link — never infer it. Keeps all files (unlike archive_reel).",
+        "Record that the OPERATOR published this item by hand, with one live https link per platform (Subtitled/Scheduled → Posted; on a Posted item it adds a cross-post). " +
+        "Never infer that something went out: ASK THE OPERATOR ON TELEGRAM, use only the link(s) they reply with, and pass operator_confirmed=true with confirmation_note quoting their reply — refused otherwise. Keeps all files (unlike archive_reel).",
       inputSchema: {
         id: reelId,
-        posted_url: z.string().url().describe("https link to the live post"),
-        rationale: z.string().min(1).describe("How you know it is live, e.g. the operator's Telegram reply"),
+        links: z
+          .array(z.object({ platform: z.enum(POST_PLATFORMS as [string, ...string[]]), url: z.string().url() }))
+          .min(1)
+          .describe("One entry per platform: instagram | youtube_shorts | tiktok"),
+        rationale: z.string().min(1),
+        operator_confirmed: z.boolean(),
+        confirmation_note: z.string().min(1).describe("The operator's Telegram reply, quoted"),
       },
     },
-    safe(async ({ id, posted_url, rationale }) =>
+    safe(async ({ id, links, rationale, operator_confirmed, confirmation_note }) =>
       presentReel(
-        await withAudit("mark_posted", "write", { reelId: id, args: { id, posted_url }, rationale }, () => markPosted(id, posted_url))
+        await withAudit(
+          "mark_posted",
+          "write",
+          { reelId: id, args: { id, links, operator_confirmed, confirmation_note }, rationale },
+          async () => {
+            if (!operator_confirmed || !confirmation_note.trim()) {
+              throw new Error(
+                `Marking reel ${id} posted needs the operator's word. Ask on Telegram, then re-call with operator_confirmed=true and confirmation_note quoting their reply.`
+              );
+            }
+            return markPosted(id, links);
+          }
+        )
       )
     )
   );

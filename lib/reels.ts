@@ -1,6 +1,7 @@
 import { getPool } from "./db";
 import { HOOKS } from "./types";
 import type {
+  PostLink,
   Hook,
   Brand,
   Reel,
@@ -28,13 +29,13 @@ export async function listReels(status?: ReelStatus): Promise<Reel[]> {
   const pool = await getPool();
   if (status) {
     const { rows } = await pool.query<Reel>(
-      "SELECT * FROM reels WHERE status = $1 ORDER BY date_found DESC",
+      `SELECT *, ${POST_LINKS_JSON} FROM reels WHERE status = $1 ORDER BY date_found DESC`,
       [status]
     );
     return rows;
   }
   const { rows } = await pool.query<Reel>(
-    "SELECT * FROM reels ORDER BY date_found DESC"
+    `SELECT *, ${POST_LINKS_JSON} FROM reels ORDER BY date_found DESC`
   );
   return rows;
 }
@@ -44,6 +45,11 @@ export async function listReels(status?: ReelStatus): Promise<Reel[]> {
 // (three parallel per-character arrays). A short transcript excerpt is
 // computed in SQL instead of shipping the whole thing. The stage popup
 // fetches the full Reel separately via GET /api/reels/[id] when opened.
+// A reel's post_links as a JSON array, oldest first.
+const POST_LINKS_JSON = `COALESCE((SELECT json_agg(json_build_object(
+    'platform', pl.platform, 'url', pl.url, 'posted_at', pl.posted_at) ORDER BY pl.posted_at)
+  FROM post_links pl WHERE pl.reel_id = reels.id), '[]'::json) AS post_links`;
+
 const SUMMARY_COLUMNS = `
   id, brand, account_id, hashtag_id, platform, url, shortcode, views, date_found, source,
   transcript_status, adapted_script, red_line_flag, red_line_reason,
@@ -51,7 +57,7 @@ const SUMMARY_COLUMNS = `
   captions_status, captions_video_path, captions_error,
   source_hashtags, publish_pack_status, publish_pack_error,
   source_video_path, slug, status, previous_status, thumbnail_url, hook,
-  planned_post_at, posted_url, posted_at,
+  planned_post_at, ${POST_LINKS_JSON},
   created_at, updated_at,
   (transcript IS NOT NULL) AS has_transcript,
   LEFT(transcript, 200) AS transcript_excerpt
@@ -70,7 +76,7 @@ export async function listReelSummaries(brand?: Brand): Promise<ReelSummary[]> {
 
 export async function getReel(id: number): Promise<Reel | undefined> {
   const pool = await getPool();
-  const { rows } = await pool.query<Reel>("SELECT * FROM reels WHERE id = $1", [
+  const { rows } = await pool.query<Reel>(`SELECT *, ${POST_LINKS_JSON} FROM reels WHERE id = $1`, [
     id,
   ]);
   return rows[0];
@@ -81,7 +87,7 @@ export async function findByShortcode(
 ): Promise<Reel | undefined> {
   const pool = await getPool();
   const { rows } = await pool.query<Reel>(
-    "SELECT * FROM reels WHERE shortcode = $1",
+    `SELECT *, ${POST_LINKS_JSON} FROM reels WHERE shortcode = $1`,
     [shortcode]
   );
   return rows[0];
@@ -95,7 +101,7 @@ export async function findBySlug(
 ): Promise<Reel | undefined> {
   const pool = await getPool();
   const { rows } = await pool.query<Reel>(
-    "SELECT * FROM reels WHERE slug = $1 AND id != $2",
+    `SELECT *, ${POST_LINKS_JSON} FROM reels WHERE slug = $1 AND id != $2`,
     [slug, excludeId]
   );
   return rows[0];
@@ -411,17 +417,18 @@ export async function setStatus(id: number, status: ReelStatus): Promise<void> {
 // Board transitions that are not a human resolving the red-line flag — see
 // setStatus's comment for which two transitions ARE that and use it instead.
 // Moving back out of Posted / Scheduled drops what no longer holds (a stale
-// posted_url would miscount per-post metrics); archive keeps both.
+// post link would miscount per-post metrics); archive keeps both.
 export async function advanceStatus(id: number, status: ReelStatus): Promise<void> {
   const pool = await getPool();
   await pool.query(
     `UPDATE reels SET status = $1,
-       posted_url = CASE WHEN $1 IN ('posted', 'archived') THEN posted_url END,
-       posted_at = CASE WHEN $1 IN ('posted', 'archived') THEN posted_at END,
        planned_post_at = CASE WHEN $1 IN ('scheduled', 'posted', 'archived') THEN planned_post_at END
      WHERE id = $2`,
     [status, id]
   );
+  if (status !== "posted" && status !== "archived") {
+    await pool.query("DELETE FROM post_links WHERE reel_id = $1", [id]);
+  }
   await touch(id);
 }
 
@@ -442,12 +449,21 @@ export async function setSchedule(id: number, plannedAt: Date): Promise<void> {
   await touch(id);
 }
 
-export async function setPosted(id: number, postedUrl: string): Promise<void> {
+// Upserts one link per platform (a re-mark replaces that platform's link)
+// and moves the item to Posted.
+export async function setPosted(
+  id: number,
+  links: Pick<PostLink, "platform" | "url">[]
+): Promise<void> {
   const pool = await getPool();
-  await pool.query(
-    "UPDATE reels SET posted_url = $1, posted_at = now(), status = 'posted' WHERE id = $2",
-    [postedUrl, id]
-  );
+  for (const l of links) {
+    await pool.query(
+      `INSERT INTO post_links (reel_id, platform, url) VALUES ($1, $2, $3)
+       ON CONFLICT (reel_id, platform) DO UPDATE SET url = EXCLUDED.url, posted_at = now()`,
+      [id, l.platform, l.url]
+    );
+  }
+  await pool.query("UPDATE reels SET status = 'posted' WHERE id = $1", [id]);
   await touch(id);
 }
 

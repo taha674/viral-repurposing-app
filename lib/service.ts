@@ -43,6 +43,7 @@ import { transcribeWavForWordTimings } from "./whisper";
 import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } from "./retention";
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import { buildPunchSchedule, punchInFilter } from "./punchIn";
+import { POST_PLATFORMS, type PostPlatform } from "./types";
 import type { Brand, Hook, Reel, RedLineFlag, PublishPack, TrackedAccount } from "./types";
 
 // Returns the reel's slug, minting it if it doesn't have one yet. Minting
@@ -721,20 +722,33 @@ export async function scheduleItem(reelId: number, plannedAt: string): Promise<R
   return (await getReel(reelId))!;
 }
 
-export async function markPosted(reelId: number, postedUrl: string): Promise<Reel> {
+// One live link per platform. Calling it again on a Posted item adds a
+// cross-post (or replaces that platform's link). The agent-side quoted-reply
+// rail lives in lib/mcp/tools.ts, like approve_script's.
+export async function markPosted(
+  reelId: number,
+  links: { platform: string; url: string }[]
+): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
-  if (!SCHEDULE_OR_POST_FROM.includes(reel.status)) {
-    throw new Error(`Only a finished (Subtitled) or scheduled item can be marked posted; reel ${reelId} is "${reel.status}".`);
+  if (![...SCHEDULE_OR_POST_FROM, "posted"].includes(reel.status)) {
+    throw new Error(`Only a finished (Subtitled), scheduled or posted item can take a post link; reel ${reelId} is "${reel.status}".`);
   }
-  let url: URL;
-  try {
-    url = new URL(postedUrl.trim());
-  } catch {
-    throw new Error(`Not a URL: ${postedUrl}`);
-  }
-  if (url.protocol !== "https:") throw new Error("posted_url must be an https link to the live post.");
-  await setPosted(reelId, url.toString());
+  if (links.length === 0) throw new Error("Give at least one post link.");
+  const clean = links.map((l) => {
+    if (!POST_PLATFORMS.includes(l.platform as PostPlatform)) {
+      throw new Error(`Platform must be one of ${POST_PLATFORMS.join(", ")} (got ${l.platform}).`);
+    }
+    let url: URL;
+    try {
+      url = new URL(l.url.trim());
+    } catch {
+      throw new Error(`Not a URL: ${l.url}`);
+    }
+    if (url.protocol !== "https:") throw new Error(`The ${l.platform} link must be an https link to the live post.`);
+    return { platform: l.platform as PostPlatform, url: url.toString() };
+  });
+  await setPosted(reelId, clean);
   return (await getReel(reelId))!;
 }
 
@@ -810,8 +824,7 @@ export async function addManualReel(
         thumbnail_url: scraped?.thumbnailUrl ?? null,
         hook: null,
         planned_post_at: null,
-        posted_url: null,
-        posted_at: null,
+        post_links: [],
         created_at: "",
         updated_at: "",
       },

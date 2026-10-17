@@ -13,6 +13,19 @@ export type ReelSource = "weekly_scan" | "manual" | "hashtag_scan" | "original";
 // pages, C the adaptive method.
 export type Hook = "A" | "B" | "C";
 export const HOOKS: Hook[] = ["A", "B", "C"];
+// Where a posted item went out. One live link per platform (post_links).
+export type PostPlatform = "instagram" | "youtube_shorts" | "tiktok";
+export const POST_PLATFORMS: PostPlatform[] = ["instagram", "youtube_shorts", "tiktok"];
+export const PLATFORM_LABELS: Record<PostPlatform, string> = {
+  instagram: "Instagram",
+  youtube_shorts: "YouTube Shorts",
+  tiktok: "TikTok",
+};
+export interface PostLink {
+  platform: PostPlatform;
+  url: string;
+  posted_at: string;
+}
 export type TranscriptStatus = "pending" | "success" | "failed";
 export type RedLineFlag = "none" | "needs_review" | "rejected";
 export type VoiceoverStatus = "none" | "generating" | "success" | "failed";
@@ -76,7 +89,7 @@ export type ReelStatus =
   | "video" // HeyGen video uploaded, awaiting subtitle burn
   | "captioned" // subtitles burned + metadata stripped — finished file
   | "scheduled" // operator picked a post time (planned_post_at)
-  | "posted" // operator published it by hand (posted_url). Not "archived":
+  | "posted" // operator published it by hand (post_links). Not "archived":
   //          archive deletes the files, posting does not.
   | "archived"
   | "rejected";
@@ -168,8 +181,8 @@ export interface Reel {
   // Launch content OS (2026-10-18). The app never posts: these record what
   // the operator planned and did.
   planned_post_at: string | null;
-  posted_url: string | null;
-  posted_at: string | null;
+  // From post_links, oldest first. Empty unless posted.
+  post_links: PostLink[];
   created_at: string;
   updated_at: string;
 }

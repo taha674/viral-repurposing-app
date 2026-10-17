@@ -3,6 +3,7 @@
 import type { ReelSummary } from "@/lib/types";
 import type { Stage } from "@/lib/stages";
 import { FlagBadge } from "./Badges";
+import { PLATFORM_LABELS } from "@/lib/types";
 import styles from "../board.module.css";
 
 // One card per reel. Excerpt shown depends on the stage: Scraped/Script show
@@ -25,7 +26,7 @@ export default function ReelCard({
   onReject?: () => void;
   busy: boolean;
 }) {
-  const title = reel.slug ?? reel.shortcode ?? reel.url.slice(0, 32);
+  const title = reel.slug ?? reel.shortcode ?? (reel.url.slice(0, 32) || `Reel ${reel.id}`);
   const excerpt =
     stage === "scraped" || stage === "script"
       ? reel.transcript_excerpt
@@ -51,6 +52,11 @@ export default function ReelCard({
         <span>·</span>
         <span>{reel.source}</span>
         {reel.hook && <span className="badge">hook {reel.hook}</span>}
+        {reel.post_links.map((l) => (
+          <span key={l.platform} className="badge green">
+            {PLATFORM_LABELS[l.platform]}
+          </span>
+        ))}
         {stage === "scraped" && (
           <span
             className={`badge ${

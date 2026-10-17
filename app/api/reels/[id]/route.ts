@@ -77,7 +77,11 @@ export async function PATCH(
   // the operator-readable precondition messages.
   try {
     if (body.planned_post_at !== undefined) await scheduleItem(reelId, String(body.planned_post_at));
-    if (body.posted_url !== undefined) await markPosted(reelId, String(body.posted_url));
+    // The operator in the web app is the human who posted, so no quoted
+    // reply here; that rail is for the agent (lib/mcp/tools.ts#mark_posted).
+    if (body.post_link !== undefined) {
+      await markPosted(reelId, [{ platform: String(body.post_link?.platform), url: String(body.post_link?.url) }]);
+    }
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
   }
