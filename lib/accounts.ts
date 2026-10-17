@@ -1,5 +1,5 @@
 import { getPool } from "./db";
-import type { TrackedAccount } from "./types";
+import type { Brand, TrackedAccount } from "./types";
 
 // Postgres stores `active` as BOOLEAN; the app-facing type keeps the prior
 // 0/1 shape so existing frontend logic (`a.active === 0`, etc.) is unchanged.
@@ -11,10 +11,11 @@ function mapAccount(row: AccountRow): TrackedAccount {
   return { ...row, active: row.active ? 1 : 0 };
 }
 
-export async function listAccounts(): Promise<TrackedAccount[]> {
+export async function listAccounts(brand?: Brand): Promise<TrackedAccount[]> {
   const pool = await getPool();
   const { rows } = await pool.query<AccountRow>(
-    "SELECT * FROM tracked_accounts ORDER BY active DESC, handle ASC"
+    `SELECT * FROM tracked_accounts WHERE ($1::text IS NULL OR brand = $1) ORDER BY active DESC, handle ASC`,
+    [brand ?? null]
   );
   return rows.map(mapAccount);
 }
@@ -37,18 +38,24 @@ export function normalizeHandle(input: string): string {
   return h.toLowerCase();
 }
 
-export async function addAccount(rawHandle: string): Promise<TrackedAccount> {
+export async function addAccount(rawHandle: string, brand: Brand): Promise<TrackedAccount> {
   const handle = normalizeHandle(rawHandle);
   if (!handle) throw new Error("Empty handle");
   const pool = await getPool();
   await pool.query(
-    "INSERT INTO tracked_accounts (platform, handle) VALUES ('instagram', $1) ON CONFLICT (handle) DO NOTHING",
-    [handle]
+    "INSERT INTO tracked_accounts (platform, handle, brand) VALUES ('instagram', $1, $2) ON CONFLICT (handle) DO NOTHING",
+    [handle, brand]
   );
   const { rows } = await pool.query<AccountRow>(
     "SELECT * FROM tracked_accounts WHERE handle = $1",
     [handle]
   );
+  // handle is unique across brands, so a source tracked by the other brand
+  // comes back here instead of being inserted — say so rather than silently
+  // handing back the other brand's row.
+  if (rows[0].brand !== brand) {
+    throw new Error(`Already tracked under ${rows[0].brand}`);
+  }
   return mapAccount(rows[0]);
 }
 

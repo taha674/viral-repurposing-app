@@ -2,6 +2,9 @@
 // Platform is instagram-only for the MVP (TikTok deferred).
 
 export type Platform = "instagram";
+// Which brand a tracked source or reel belongs to (multi-brand, 2026-10-17).
+// Brand-specific prompts, voice and visuals live in lib/brands.
+export type Brand = "cyrus" | "nuronomics";
 export type ReelSource = "weekly_scan" | "manual" | "hashtag_scan";
 export type TranscriptStatus = "pending" | "success" | "failed";
 export type RedLineFlag = "none" | "needs_review" | "rejected";
@@ -70,6 +73,7 @@ export type ReelStatus =
 
 export interface TrackedAccount {
   id: number;
+  brand: Brand;
   platform: Platform;
   handle: string;
   active: number; // sqlite: 0/1
@@ -83,6 +87,7 @@ export interface TrackedAccount {
 // found-count) so it reuses the account scan's UI and scan patterns.
 export interface TrackedHashtag {
   id: number;
+  brand: Brand;
   tag: string; // stored without the leading '#'
   active: number; // 0/1, mirrors TrackedAccount
   last_scanned_at: string | null;
@@ -102,6 +107,7 @@ export interface Analysis {
 
 export interface Reel {
   id: number;
+  brand: Brand;
   account_id: number | null;
   // Which tracked hashtag surfaced this reel, when source is "hashtag_scan".
   // Null for account-scan and manual reels.

@@ -81,7 +81,8 @@ export interface VoiceoverWithAlignment {
 // caption timing — exact, since it's the same TTS render, not a re-guess
 // via speech recognition on the output audio.
 export async function generateVoiceoverWithTimestamps(
-  text: string
+  text: string,
+  voiceId: string
 ): Promise<VoiceoverWithAlignment> {
   if (!hasElevenLabs()) {
     throw new Error(
@@ -92,7 +93,7 @@ export async function generateVoiceoverWithTimestamps(
     throw new Error("Cannot generate a voiceover from an empty script.");
   }
 
-  const url = `https://api.elevenlabs.io/v1/text-to-speech/${config.elevenlabsVoiceId}/with-timestamps`;
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`;
   const attempts = Math.max(1, config.elevenlabsMaxRetries + 1);
   let lastError: unknown;
 

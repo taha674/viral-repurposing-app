@@ -9,6 +9,7 @@ import BoardColumn from "./components/BoardColumn";
 import Trays from "./components/Trays";
 import AddReelDialog from "./components/AddReelDialog";
 import StageModal from "./components/StageModal";
+import { currentBrand } from "./BrandSwitcher";
 
 // Board shell: one 6-column kanban (lib/stages.ts is the single source of
 // truth for which status lands in which column), two collapsible trays for
@@ -24,7 +25,7 @@ export default function Board() {
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/reels");
+    const res = await fetch(`/api/reels?brand=${currentBrand()}`);
     const data = await res.json();
     setReels(data.reels ?? []);
   }, []);

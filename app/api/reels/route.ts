@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { listReelSummaries } from "@/lib/reels";
 import { addManualReel } from "@/lib/service";
 import { config } from "@/lib/config";
+import { parseBrand } from "@/lib/brands";
 
 function formatThreshold(n: number): string {
   return n % 1_000_000 === 0
@@ -15,8 +16,9 @@ function formatThreshold(n: number): string {
 // analysis, or voiceover_alignment). The board groups these into columns via
 // lib/stages.ts#stageOf client-side, so there's no server-side status filter
 // here any more.
-export async function GET() {
-  return NextResponse.json({ reels: await listReelSummaries() });
+export async function GET(request: Request) {
+  const brand = parseBrand(new URL(request.url).searchParams.get("brand"));
+  return NextResponse.json({ reels: await listReelSummaries(brand) });
 }
 
 export async function POST(request: Request) {
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const result = await addManualReel(url, force);
+    const result = await addManualReel(url, force, parseBrand(body.brand));
     if (!result.qualifies && !result.forced) {
       return NextResponse.json(
         {

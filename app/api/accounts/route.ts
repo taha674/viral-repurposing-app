@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { listAccounts, addAccount } from "@/lib/accounts";
+import { parseBrand } from "@/lib/brands";
 
-export async function GET() {
-  return NextResponse.json({ accounts: await listAccounts() });
+export async function GET(request: Request) {
+  const brand = parseBrand(new URL(request.url).searchParams.get("brand"));
+  return NextResponse.json({ accounts: await listAccounts(brand) });
 }
 
 export async function POST(request: Request) {
@@ -12,7 +14,7 @@ export async function POST(request: Request) {
     if (!handle) {
       return NextResponse.json({ error: "handle is required" }, { status: 400 });
     }
-    const account = await addAccount(handle);
+    const account = await addAccount(handle, parseBrand(body.brand));
     return NextResponse.json({ account }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to add account";

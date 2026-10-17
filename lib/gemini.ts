@@ -1,5 +1,6 @@
 import { GoogleGenAI, type GenerateContentResponse } from "@google/genai";
 import { config, hasGemini } from "./config";
+import type { Brand } from "./types";
 import {
   getEffectiveSystemPrompt,
   buildUserMessage,
@@ -91,7 +92,8 @@ function extractResult(response: GenerateContentResponse): AdaptationResult {
 // GEMINI_MAX_RETRIES is a HARD CAP (project rule: never loop silently
 // against a paid API — failures surface to the operator).
 export async function runAdaptation(
-  transcript: string
+  transcript: string,
+  brand: Brand
 ): Promise<AdaptationResult> {
   if (!hasGemini()) {
     throw new Error(
@@ -104,7 +106,7 @@ export async function runAdaptation(
 
   const ai = new GoogleGenAI({ apiKey: config.geminiKey });
   const attempts = Math.max(1, config.geminiMaxRetries + 1);
-  const systemInstruction = await getEffectiveSystemPrompt();
+  const systemInstruction = await getEffectiveSystemPrompt(brand);
   let lastError: unknown;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -155,7 +157,7 @@ export async function runPublishPack(
 
   const ai = new GoogleGenAI({ apiKey: config.geminiKey });
   const attempts = Math.max(1, config.geminiMaxRetries + 1);
-  const systemInstruction = await getEffectivePublishSystemPrompt();
+  const systemInstruction = await getEffectivePublishSystemPrompt(input.brand);
   let lastError: unknown;
 
   for (let attempt = 0; attempt < attempts; attempt++) {

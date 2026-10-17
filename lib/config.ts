@@ -3,6 +3,7 @@
 // (project rule: any retry/poll loop must have a hard cap and fail loud).
 
 import path from "node:path";
+import type { Brand } from "./types";
 
 function intEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -48,6 +49,7 @@ export const config = {
   // ElevenLabs (voiceover step)
   elevenlabsKey: process.env.ELEVENLABS_API_KEY ?? "",
   elevenlabsVoiceId: process.env.ELEVENLABS_VOICE_ID ?? "", // Cyrus v4
+  elevenlabsVoiceIdNuronomics: process.env.ELEVENLABS_VOICE_ID_NURONOMICS ?? "",
   // eleven_v3 supports expressive audio tags (e.g. [excited], [whispers]),
   // which matters here since scripts may contain ElevenLabs audio tags that
   // get passed through unmodified.
@@ -257,4 +259,10 @@ export function hasInstagram(): boolean {
     config.instagramOwnerIgsid.trim().length > 0 &&
     config.instagramMediaTokenSecret.trim().length > 0
   );
+}
+
+export function voiceIdFor(brand: Brand): string {
+  const id = brand === "nuronomics" ? config.elevenlabsVoiceIdNuronomics : config.elevenlabsVoiceId;
+  if (!id.trim()) throw new Error(`No ElevenLabs voice id set for ${brand} (ELEVENLABS_VOICE_ID${brand === "nuronomics" ? "_NURONOMICS" : ""}).`);
+  return id;
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { TrackedAccount, TrackedHashtag } from "@/lib/types";
+import { currentBrand } from "../BrandSwitcher";
 
 // Discovery Sources (2026-08-24, renamed from "Tracked Accounts"): the two
 // inputs the scan (on-demand and weekly) draws from — tracked IG accounts
@@ -32,7 +33,7 @@ function AccountsSection() {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const res = await fetch("/api/accounts");
+    const res = await fetch(`/api/accounts?brand=${currentBrand()}`);
     const data = await res.json();
     setAccounts(data.accounts ?? []);
   }
@@ -46,7 +47,7 @@ function AccountsSection() {
     const res = await fetch("/api/accounts", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle }),
+      body: JSON.stringify({ handle, brand: currentBrand() }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -154,7 +155,7 @@ function HashtagsSection() {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const res = await fetch("/api/hashtags");
+    const res = await fetch(`/api/hashtags?brand=${currentBrand()}`);
     const data = await res.json();
     setHashtags(data.hashtags ?? []);
   }
@@ -168,7 +169,7 @@ function HashtagsSection() {
     const res = await fetch("/api/hashtags", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ tag }),
+      body: JSON.stringify({ tag, brand: currentBrand() }),
     });
     setBusy(false);
     if (!res.ok) {

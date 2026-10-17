@@ -204,6 +204,14 @@ async function ensureSchema(pool: Pool): Promise<void> {
       message_id  TEXT PRIMARY KEY,
       processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
+    -- Multi-brand (2026-10-17): Nuronomics runs through the same pipeline.
+    -- Every pre-existing row is Cyrus, which the default covers. A reel takes
+    -- the brand of the account/hashtag that found it (lib/brands).
+    ALTER TABLE tracked_accounts ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT 'cyrus';
+    ALTER TABLE tracked_hashtags ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT 'cyrus';
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT 'cyrus';
+    CREATE INDEX IF NOT EXISTS idx_reels_brand ON reels(brand);
   `);
 
   await seedAccounts(pool);

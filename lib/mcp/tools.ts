@@ -28,10 +28,11 @@ import { listScanLogs } from "../scanLogs";
 import { STAGES, stageOf, backTargetStatus } from "../stages";
 import type { Stage } from "../stages";
 import { mcpMediaUrl } from "./mediaToken";
-import type { Reel, PublishPack } from "../types";
+import type { Brand, Reel, PublishPack } from "../types";
 import { withAudit } from "./audit";
 import { downloadVideo } from "./download";
 import { uploadUrl } from "./uploadToken";
+import { BRANDS, parseBrand } from "../brands";
 
 // --- helpers -------------------------------------------------------------
 
@@ -59,6 +60,10 @@ function safe<A>(fn: (args: A) => Promise<unknown>) {
 }
 
 const reelId = z.number().int().positive().describe("Reel id");
+const brandArg = z
+  .enum(BRANDS.map((b) => b.id) as [Brand, ...Brand[]])
+  .optional()
+  .describe("Brand: " + BRANDS.map((b) => b.id).join(" | "));
 
 async function mustGet(id: number): Promise<Reel> {
   const reel = await getReel(id);
@@ -126,13 +131,15 @@ export function registerTools(server: McpServer): void {
     "get_pipeline_overview",
     {
       description:
-        "Start here. Counts of reels per kanban stage, plus the reels currently waiting on a decision or action (awaiting accept, awaiting approval, awaiting video upload, ready to burn) and any with a red-line flag.",
+        "Start here. Counts of reels per kanban stage, plus the reels currently waiting on a decision or action (awaiting accept, awaiting approval, awaiting video upload, ready to burn) and any with a red-line flag. Omit brand for all brands.",
+      inputSchema: { brand: brandArg },
     },
-    safe(async () => {
-      const reels = await listReelSummaries();
+    safe(async ({ brand }) => {
+      const reels = await listReelSummaries(brand);
       const counts: Record<string, number> = {};
       const brief = (r: (typeof reels)[number]) => ({
         id: r.id,
+        brand: r.brand,
         status: r.status,
         red_line_flag: r.red_line_flag,
         views: r.views,
@@ -160,11 +167,12 @@ export function registerTools(server: McpServer): void {
       inputSchema: {
         stage: z.enum(["scraped", "script", "adaptation", "audio", "video", "subtitled", "rejected", "done"]).optional(),
         include_trays: z.boolean().optional(),
+        brand: brandArg,
         limit: z.number().int().min(1).max(200).optional(),
       },
     },
-    safe(async ({ stage, include_trays, limit }) => {
-      let reels = await listReelSummaries();
+    safe(async ({ stage, include_trays, brand, limit }) => {
+      let reels = await listReelSummaries(brand);
       reels = reels.filter((r) => {
         const s = stageOf(r);
         if (stage) return s === stage;
@@ -172,6 +180,7 @@ export function registerTools(server: McpServer): void {
       });
       return reels.slice(0, limit ?? 100).map((r) => ({
         id: r.id,
+        brand: r.brand,
         stage: stageOf(r),
         status: r.status,
         red_line_flag: r.red_line_flag,
@@ -229,9 +238,9 @@ export function registerTools(server: McpServer): void {
   server.registerTool("list_accounts", { description: "Tracked Instagram accounts for discovery scans." }, safe(async () => listAccounts()));
   server.registerTool(
     "add_account",
-    { description: "Track an Instagram account (handle, with or without @).", inputSchema: { handle: z.string().min(1) } },
-    safe(async ({ handle }) =>
-      withAudit("add_account", "write", { args: { handle } }, () => addAccount(handle.trim()))
+    { description: "Track an Instagram account (handle, with or without @) for a brand (default cyrus).", inputSchema: { handle: z.string().min(1), brand: brandArg } },
+    safe(async ({ handle, brand }) =>
+      withAudit("add_account", "write", { args: { handle, brand } }, () => addAccount(handle.trim(), parseBrand(brand)))
     )
   );
   server.registerTool(
@@ -258,9 +267,9 @@ export function registerTools(server: McpServer): void {
   server.registerTool("list_hashtags", { description: "Tracked hashtags for discovery scans." }, safe(async () => listHashtags()));
   server.registerTool(
     "add_hashtag",
-    { description: "Track a hashtag for discovery (with or without #).", inputSchema: { tag: z.string().min(1) } },
-    safe(async ({ tag }) =>
-      withAudit("add_hashtag", "write", { args: { tag } }, () => addHashtag(tag.trim()))
+    { description: "Track a hashtag for discovery (with or without #) for a brand (default cyrus).", inputSchema: { tag: z.string().min(1), brand: brandArg } },
+    safe(async ({ tag, brand }) =>
+      withAudit("add_hashtag", "write", { args: { tag, brand } }, () => addHashtag(tag.trim(), parseBrand(brand)))
     )
   );
   server.registerTool(
@@ -299,11 +308,11 @@ export function registerTools(server: McpServer): void {
     {
       description:
         "Add one Instagram reel by URL (scrape + transcript). PAID (Apify). Below the view threshold it is NOT saved unless force=true — pass force only if the operator chose this reel. Returns the reel, or {qualifies:false} if below threshold.",
-      inputSchema: { url: z.string().url(), force: z.boolean().optional() },
+      inputSchema: { url: z.string().url(), force: z.boolean().optional(), brand: brandArg },
     },
-    safe(async ({ url, force }) => {
+    safe(async ({ url, force, brand }) => {
       if (!/instagram\.com\//i.test(url)) throw new Error("Only Instagram URLs are supported.");
-      const result = await withAudit("add_reel", "paid", { args: { url, force } }, () => addManualReel(url.trim(), Boolean(force)));
+      const result = await withAudit("add_reel", "paid", { args: { url, force, brand } }, () => addManualReel(url.trim(), Boolean(force), parseBrand(brand)));
       if (!result.qualifies && !result.forced) {
         return {
           qualifies: false,

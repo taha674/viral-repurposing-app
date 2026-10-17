@@ -3,9 +3,10 @@ import Link from "next/link";
 import "./globals.css";
 import { hasAppPassword } from "@/lib/config";
 import { LogoutButton } from "./LogoutButton";
+import { BrandSwitcher } from "./BrandSwitcher";
 
 export const metadata: Metadata = {
-  title: "Viral Repurposing — Cyrus Amin",
+  title: "Viral Repurposing",
   description: "Instagram reel discovery, transcript, and red-line-compliance adaptation.",
 };
 
@@ -24,6 +25,7 @@ export default function RootLayout({
             <Link href="/discovery">Discovery Sources</Link>
             <Link href="/settings">Settings</Link>
           </nav>
+          <BrandSwitcher />
           {hasAppPassword() && <LogoutButton />}
         </header>
         <main className="container">{children}</main>

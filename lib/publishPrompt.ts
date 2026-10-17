@@ -17,6 +17,8 @@
 // AI-generated-content toggle.
 
 import { getSetting, setSetting, deleteSetting } from "./settings";
+import { brandKey } from "./brands";
+import type { Brand } from "./types";
 // One red-line list, never a second copy — this is the same list the
 // adaptation step edits against.
 import { RED_LINES } from "./prompt";
@@ -39,6 +41,7 @@ export interface PublishPackInput {
   sourceCaptionBody: string | null;
   sourceHashtags: string[];
   coverCandidates: CoverCandidate[];
+  brand: Brand;
 }
 
 // What the model returns. Differs from the persisted PublishPack in one
@@ -230,32 +233,36 @@ export function buildPublishUserMessage(input: PublishPackInput): string {
 // Separate settings key from the adaptation prompt, so customizing one never
 // affects the other.
 
-export function getDefaultPublishSystemPrompt(): string {
-  return buildPublishSystemPrompt();
+// Only Cyrus has a code default; other brands run on the prompt saved in
+// Settings (empty string here = "none yet").
+export function getDefaultPublishSystemPrompt(brand: Brand): string {
+  return brand === "cyrus" ? buildPublishSystemPrompt() : "";
 }
 
-export async function getEffectivePublishSystemPrompt(): Promise<string> {
-  const override = await getSetting(PUBLISH_PROMPT_SETTING_KEY);
-  return override?.trim() ? override : buildPublishSystemPrompt();
+export async function getEffectivePublishSystemPrompt(brand: Brand): Promise<string> {
+  const override = await getSetting(brandKey(PUBLISH_PROMPT_SETTING_KEY, brand));
+  const prompt = override?.trim() ? override : getDefaultPublishSystemPrompt(brand);
+  if (!prompt) throw new Error(`No ${brand} prompt yet — save one in Settings first.`);
+  return prompt;
 }
 
-export async function isPublishSystemPromptCustomized(): Promise<boolean> {
-  const override = await getSetting(PUBLISH_PROMPT_SETTING_KEY);
+export async function isPublishSystemPromptCustomized(brand: Brand): Promise<boolean> {
+  const override = await getSetting(brandKey(PUBLISH_PROMPT_SETTING_KEY, brand));
   return !!override?.trim();
 }
 
-export async function setCustomPublishSystemPrompt(prompt: string): Promise<void> {
+export async function setCustomPublishSystemPrompt(prompt: string, brand: Brand): Promise<void> {
   const trimmed = prompt.trim();
   if (!trimmed) {
     throw new Error(
       "System prompt cannot be empty — use Reset to restore the default instead."
     );
   }
-  await setSetting(PUBLISH_PROMPT_SETTING_KEY, trimmed);
+  await setSetting(brandKey(PUBLISH_PROMPT_SETTING_KEY, brand), trimmed);
 }
 
-export async function resetPublishSystemPrompt(): Promise<void> {
-  await deleteSetting(PUBLISH_PROMPT_SETTING_KEY);
+export async function resetPublishSystemPrompt(brand: Brand): Promise<void> {
+  await deleteSetting(brandKey(PUBLISH_PROMPT_SETTING_KEY, brand));
 }
 
 // Gemini structured-output schema. Same subset rules as ADAPTATION_SCHEMA in

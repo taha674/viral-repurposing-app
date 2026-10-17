@@ -9,6 +9,8 @@
 //     demographic-specific references for "wealthy families"-style wording.
 
 import { getSetting, setSetting, deleteSetting } from "./settings";
+import { brandKey } from "./brands";
+import type { Brand } from "./types";
 
 const SYSTEM_PROMPT_SETTING_KEY = "adaptation_system_prompt";
 
@@ -243,34 +245,38 @@ export function buildUserMessage(transcript: string): string {
 
 // The as-shipped prompt, ignoring any operator override. Used as the "Reset
 // to default" target and to show the operator what the baseline looks like.
-export function getDefaultSystemPrompt(): string {
-  return buildSystemPrompt();
+// Only Cyrus has a code default; other brands run on the prompt saved in
+// Settings (empty string here = "none yet").
+export function getDefaultSystemPrompt(brand: Brand): string {
+  return brand === "cyrus" ? buildSystemPrompt() : "";
 }
 
 // What actually gets sent to Gemini: the operator's saved override if present
 // and non-empty, otherwise the code default.
-export async function getEffectiveSystemPrompt(): Promise<string> {
-  const override = await getSetting(SYSTEM_PROMPT_SETTING_KEY);
-  return override?.trim() ? override : buildSystemPrompt();
+export async function getEffectiveSystemPrompt(brand: Brand): Promise<string> {
+  const override = await getSetting(brandKey(SYSTEM_PROMPT_SETTING_KEY, brand));
+  const prompt = override?.trim() ? override : getDefaultSystemPrompt(brand);
+  if (!prompt) throw new Error(`No ${brand} prompt yet — save one in Settings first.`);
+  return prompt;
 }
 
-export async function isSystemPromptCustomized(): Promise<boolean> {
-  const override = await getSetting(SYSTEM_PROMPT_SETTING_KEY);
+export async function isSystemPromptCustomized(brand: Brand): Promise<boolean> {
+  const override = await getSetting(brandKey(SYSTEM_PROMPT_SETTING_KEY, brand));
   return !!override?.trim();
 }
 
-export async function setCustomSystemPrompt(prompt: string): Promise<void> {
+export async function setCustomSystemPrompt(prompt: string, brand: Brand): Promise<void> {
   const trimmed = prompt.trim();
   if (!trimmed) {
     throw new Error(
       "System prompt cannot be empty — use Reset to restore the default instead."
     );
   }
-  await setSetting(SYSTEM_PROMPT_SETTING_KEY, trimmed);
+  await setSetting(brandKey(SYSTEM_PROMPT_SETTING_KEY, brand), trimmed);
 }
 
-export async function resetSystemPrompt(): Promise<void> {
-  await deleteSetting(SYSTEM_PROMPT_SETTING_KEY);
+export async function resetSystemPrompt(brand: Brand): Promise<void> {
+  await deleteSetting(brandKey(SYSTEM_PROMPT_SETTING_KEY, brand));
 }
 
 // JSON schema for Gemini structured output (config.responseJsonSchema, paired

@@ -1,5 +1,5 @@
 import { getPool } from "./db";
-import type { TrackedHashtag } from "./types";
+import type { Brand, TrackedHashtag } from "./types";
 
 // Mirrors lib/accounts.ts exactly — same lifecycle (active/pause, last scan,
 // running found-count), just for the hashtag-based discovery mode
@@ -13,10 +13,11 @@ function mapHashtag(row: HashtagRow): TrackedHashtag {
   return { ...row, active: row.active ? 1 : 0 };
 }
 
-export async function listHashtags(): Promise<TrackedHashtag[]> {
+export async function listHashtags(brand?: Brand): Promise<TrackedHashtag[]> {
   const pool = await getPool();
   const { rows } = await pool.query<HashtagRow>(
-    "SELECT * FROM tracked_hashtags ORDER BY active DESC, tag ASC"
+    `SELECT * FROM tracked_hashtags WHERE ($1::text IS NULL OR brand = $1) ORDER BY active DESC, tag ASC`,
+    [brand ?? null]
   );
   return rows.map(mapHashtag);
 }
@@ -38,18 +39,24 @@ export function normalizeHashtag(input: string): string {
   return input.trim().replace(/^#/, "").trim().toLowerCase();
 }
 
-export async function addHashtag(rawTag: string): Promise<TrackedHashtag> {
+export async function addHashtag(rawTag: string, brand: Brand): Promise<TrackedHashtag> {
   const tag = normalizeHashtag(rawTag);
   if (!tag) throw new Error("Empty hashtag");
   const pool = await getPool();
   await pool.query(
-    "INSERT INTO tracked_hashtags (tag) VALUES ($1) ON CONFLICT (tag) DO NOTHING",
-    [tag]
+    "INSERT INTO tracked_hashtags (tag, brand) VALUES ($1, $2) ON CONFLICT (tag) DO NOTHING",
+    [tag, brand]
   );
   const { rows } = await pool.query<HashtagRow>(
     "SELECT * FROM tracked_hashtags WHERE tag = $1",
     [tag]
   );
+  // tag is unique across brands, so a source tracked by the other brand
+  // comes back here instead of being inserted — say so rather than silently
+  // handing back the other brand's row.
+  if (rows[0].brand !== brand) {
+    throw new Error(`Already tracked under ${rows[0].brand}`);
+  }
   return mapHashtag(rows[0]);
 }
 

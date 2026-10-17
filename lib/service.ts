@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-import { config } from "./config";
+import { config, voiceIdFor } from "./config";
 import { getPool } from "./db";
 import { listAccounts, markScanned } from "./accounts";
 import { listHashtags, markHashtagScanned } from "./hashtags";
@@ -41,7 +41,7 @@ import { transcribeWavForWordTimings } from "./whisper";
 import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } from "./retention";
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import { buildPunchSchedule, punchInFilter } from "./punchIn";
-import type { Reel, RedLineFlag, PublishPack, TrackedAccount } from "./types";
+import type { Brand, Reel, RedLineFlag, PublishPack, TrackedAccount } from "./types";
 
 // Returns the reel's slug, minting it if it doesn't have one yet. Minting
 // normally happens on accept (acceptReel, below); this fallback only fires
@@ -294,7 +294,7 @@ export async function adaptReel(reelId: number): Promise<Reel> {
     );
   }
 
-  const result = await runAdaptation(reel.transcript);
+  const result = await runAdaptation(reel.transcript, reel.brand);
   const validFlags: RedLineFlag[] = ["none", "needs_review", "rejected"];
   const flag = validFlags.includes(result.red_line_flag as RedLineFlag)
     ? (result.red_line_flag as RedLineFlag)
@@ -405,6 +405,7 @@ export async function generatePublishPack(reelId: number): Promise<Reel> {
       sourceCaptionBody: captionBody(reel.source_caption),
       sourceHashtags: reel.source_hashtags ?? [],
       coverCandidates: candidates,
+      brand: reel.brand,
     });
 
     // Resolve the chosen index against the list we actually sent. An
@@ -486,7 +487,7 @@ export async function generateVoiceover(reelId: number): Promise<Reel> {
 
   try {
     const slug = await ensureSlug(reel);
-    const { audio, alignment } = await generateVoiceoverWithTimestamps(script);
+    const { audio, alignment } = await generateVoiceoverWithTimestamps(script, voiceIdFor(reel.brand));
     const dir = path.join(config.reelsOutputDir, slug);
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, reelFileName(slug, "audio", "mp3"));
@@ -700,7 +701,8 @@ export interface ManualAddResult {
 
 export async function addManualReel(
   url: string,
-  force: boolean
+  force: boolean,
+  brand: Brand
 ): Promise<ManualAddResult> {
   const shortcode = extractShortcode(url);
   // Single call: metadata + transcript (it's a chosen reel, so pull both).
@@ -713,6 +715,7 @@ export async function addManualReel(
     return {
       reel: {
         id: 0,
+        brand,
         account_id: null,
         hashtag_id: null,
         platform: "instagram",
@@ -755,6 +758,7 @@ export async function addManualReel(
 
   // insertReel dedupes on shortcode and returns the existing row if present.
   const reel = await insertReel({
+    brand,
     url,
     shortcode: scraped?.shortcode ?? shortcode,
     views,
@@ -862,6 +866,7 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
       for (; q.cursor < roundEnd; q.cursor++) {
         const r = q.candidates[q.cursor];
         const reel = await insertReel({
+          brand: q.account.brand,
           account_id: q.account.id,
           url: r.url,
           shortcode: r.shortcode,
@@ -949,6 +954,7 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
         }
 
         const reel = await insertReel({
+          brand: hashtag.brand,
           hashtag_id: hashtag.id,
           url: r.url,
           shortcode: r.shortcode,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { currentBrand } from "../BrandSwitcher";
 
 // Two independently-overridable Gemini system prompts. They're edited in one
 // place but stored under separate settings keys, so customizing the
@@ -293,7 +294,7 @@ export default function SettingsPage() {
 
   const load = useCallback(async (key: PromptKey) => {
     setLoading(true);
-    const res = await fetch(`/api/settings/prompt?which=${key}`);
+    const res = await fetch(`/api/settings/prompt?which=${key}&brand=${currentBrand()}`);
     const data = await res.json();
     setPrompt(data.prompt ?? "");
     setIsCustom(!!data.isCustom);
@@ -312,7 +313,7 @@ export default function SettingsPage() {
     setErr("");
     setMsg("");
     setBusy(true);
-    const res = await fetch(`/api/settings/prompt?which=${which}`, {
+    const res = await fetch(`/api/settings/prompt?which=${which}&brand=${currentBrand()}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ prompt }),
@@ -335,7 +336,7 @@ export default function SettingsPage() {
     setErr("");
     setMsg("");
     setBusy(true);
-    const res = await fetch(`/api/settings/prompt?which=${which}`, {
+    const res = await fetch(`/api/settings/prompt?which=${which}&brand=${currentBrand()}`, {
       method: "DELETE",
     });
     const data = await res.json();

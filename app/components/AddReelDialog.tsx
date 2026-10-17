@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { currentBrand } from "../BrandSwitcher";
 
 // Modal version of the old page's "Add a reel manually" card. Same
 // Add/Force-add behavior — only the presentation moved into a popup so it's
@@ -24,7 +25,7 @@ export default function AddReelDialog({
     const res = await fetch("/api/reels", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url, force }),
+      body: JSON.stringify({ url, force, brand: currentBrand() }),
     });
     setBusy(false);
     const data = await res.json();

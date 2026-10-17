@@ -1,5 +1,6 @@
 import { getPool } from "./db";
 import type {
+  Brand,
   Reel,
   ReelSource,
   ReelStatus,
@@ -42,7 +43,7 @@ export async function listReels(status?: ReelStatus): Promise<Reel[]> {
 // computed in SQL instead of shipping the whole thing. The stage popup
 // fetches the full Reel separately via GET /api/reels/[id] when opened.
 const SUMMARY_COLUMNS = `
-  id, account_id, hashtag_id, platform, url, shortcode, views, date_found, source,
+  id, brand, account_id, hashtag_id, platform, url, shortcode, views, date_found, source,
   transcript_status, adapted_script, red_line_flag, red_line_reason,
   voiceover_status, voiceover_path, voiceover_error,
   captions_status, captions_video_path, captions_error,
@@ -53,10 +54,13 @@ const SUMMARY_COLUMNS = `
   LEFT(transcript, 200) AS transcript_excerpt
 `;
 
-export async function listReelSummaries(): Promise<ReelSummary[]> {
+// No brand = every brand (MCP overview); the board always passes one.
+export async function listReelSummaries(brand?: Brand): Promise<ReelSummary[]> {
   const pool = await getPool();
   const { rows } = await pool.query<ReelSummary>(
-    `SELECT ${SUMMARY_COLUMNS} FROM reels ORDER BY date_found DESC`
+    `SELECT ${SUMMARY_COLUMNS} FROM reels WHERE ($1::text IS NULL OR brand = $1)
+     ORDER BY date_found DESC`,
+    [brand ?? null]
   );
   return rows;
 }
@@ -95,6 +99,7 @@ export async function findBySlug(
 }
 
 export interface NewReel {
+  brand: Brand;
   account_id?: number | null;
   hashtag_id?: number | null;
   url: string;
@@ -121,8 +126,8 @@ export async function insertReel(r: NewReel): Promise<Reel> {
   const { rows } = await pool.query<Reel>(
     `INSERT INTO reels
       (account_id, hashtag_id, url, shortcode, views, source, transcript, transcript_status,
-       thumbnail_url, source_caption, source_hashtags)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       thumbnail_url, source_caption, source_hashtags, brand)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
     [
       r.account_id ?? null,
@@ -139,6 +144,7 @@ export async function insertReel(r: NewReel): Promise<Reel> {
       // has no hashtags" and "we never captured them" don't have to be told
       // apart by length — both read as absent, which is what the UI shows.
       r.source_hashtags?.length ? JSON.stringify(r.source_hashtags) : null,
+      r.brand,
     ]
   );
   const id = rows[0].id;

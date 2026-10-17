@@ -13,6 +13,8 @@ import {
   setCustomPublishSystemPrompt,
   resetPublishSystemPrompt,
 } from "@/lib/publishPrompt";
+import { parseBrand } from "@/lib/brands";
+import type { Brand } from "@/lib/types";
 
 // Two independently-overridable system prompts, one endpoint. Each has its
 // own settings key, so customizing one never affects the other. `?which=`
@@ -45,14 +47,22 @@ function pick(request: Request): PromptKey | null {
 
 // The same { prompt, default, isCustom } shape every verb returns, so the
 // client can treat a save and a reset identically.
-async function state(key: PromptKey) {
+// Prompts are per brand (?brand=, default cyrus). A brand with no code
+// default and nothing saved reads as an empty, uncustomized prompt.
+async function state(key: PromptKey, brand: Brand) {
   const p = PROMPTS[key];
+  const isCustom = await p.isCustom(brand);
   return NextResponse.json({
     which: key,
-    prompt: await p.effective(),
-    default: p.default(),
-    isCustom: await p.isCustom(),
+    brand,
+    prompt: isCustom ? await p.effective(brand) : p.default(brand),
+    default: p.default(brand),
+    isCustom,
   });
+}
+
+function brandOf(request: Request): Brand {
+  return parseBrand(new URL(request.url).searchParams.get("brand"));
 }
 
 const BAD_WHICH = NextResponse.json(
@@ -62,16 +72,17 @@ const BAD_WHICH = NextResponse.json(
 
 export async function GET(request: Request) {
   const key = pick(request);
-  return key ? state(key) : BAD_WHICH;
+  return key ? state(key, brandOf(request)) : BAD_WHICH;
 }
 
 export async function PUT(request: Request) {
   const key = pick(request);
   if (!key) return BAD_WHICH;
   try {
+    const brand = brandOf(request);
     const body = await request.json();
-    await PROMPTS[key].set(String(body.prompt ?? ""));
-    return state(key);
+    await PROMPTS[key].set(String(body.prompt ?? ""), brand);
+    return state(key, brand);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save prompt";
     return NextResponse.json({ error: message }, { status: 400 });
@@ -81,6 +92,7 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const key = pick(request);
   if (!key) return BAD_WHICH;
-  await PROMPTS[key].reset();
-  return state(key);
+  const brand = brandOf(request);
+  await PROMPTS[key].reset(brand);
+  return state(key, brand);
 }
