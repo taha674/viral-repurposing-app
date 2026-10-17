@@ -7,6 +7,7 @@ import {
   parseAnalysis,
 } from "@/lib/reels";
 import { archiveReel, scheduleItem, markPosted } from "@/lib/service";
+import { backTargetStatus, stageOf, type Stage } from "@/lib/stages";
 import type { ReelStatus } from "@/lib/types";
 
 // The status transitions this generic PATCH accepts from the client.
@@ -85,10 +86,11 @@ export async function PATCH(
     // Move back from Scheduled/Posted is a plain back-move: the file is
     // already burned. Anywhere else "captioned" stays the burn's result only,
     // and "scheduled" needs a time (planned_post_at above).
-    const current = (await getReel(reelId))!.status;
+    const current = (await getReel(reelId))!;
+    const currentStage = stageOf(current);
     const isBackMove =
-      (body.status === "captioned" && (current === "scheduled" || current === "posted")) ||
-      (body.status === "scheduled" && current === "posted");
+      (currentStage === "scheduled" || currentStage === "posted") &&
+      body.status === backTargetStatus(current, currentStage as Stage);
     if (!isBackMove && !CLIENT_SETTABLE_STATUSES.includes(body.status)) {
       return NextResponse.json({ error: "invalid status" }, { status: 400 });
     }

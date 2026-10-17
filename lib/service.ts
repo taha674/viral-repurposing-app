@@ -108,8 +108,8 @@ export async function acceptReel(reelId: number): Promise<Reel> {
 // the reel to previous_status — the column it was actually in right before
 // it got rejected (recorded by setStatus, see lib/reels.ts). Falls back to
 // the old Scraped-only inference for reels rejected before that column
-// existed. Archive only ever happens from the Subtitled column, so that
-// side stays a fixed target.
+// existed. Archive purges files wherever it happens from (Subtitled or
+// Posted), so that side stays a fixed target.
 export async function restoreReel(reelId: number): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
@@ -706,12 +706,13 @@ export interface ManualAddResult {
 // operator's word) records the planned time and, once the operator has
 // published by hand, the post's URL. Posted is not Archive — archiveReel
 // deletes files, these never touch the disk.
-const SCHEDULABLE: Reel["status"][] = ["captioned", "scheduled"];
+// Statuses both schedule_item and mark_posted accept.
+const SCHEDULE_OR_POST_FROM: Reel["status"][] = ["captioned", "scheduled"];
 
 export async function scheduleItem(reelId: number, plannedAt: string): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
-  if (!SCHEDULABLE.includes(reel.status)) {
+  if (!SCHEDULE_OR_POST_FROM.includes(reel.status)) {
     throw new Error(`Only a finished (Subtitled) or already scheduled item can be scheduled; reel ${reelId} is "${reel.status}".`);
   }
   const at = new Date(plannedAt);
@@ -723,7 +724,7 @@ export async function scheduleItem(reelId: number, plannedAt: string): Promise<R
 export async function markPosted(reelId: number, postedUrl: string): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
-  if (!SCHEDULABLE.includes(reel.status)) {
+  if (!SCHEDULE_OR_POST_FROM.includes(reel.status)) {
     throw new Error(`Only a finished (Subtitled) or scheduled item can be marked posted; reel ${reelId} is "${reel.status}".`);
   }
   let url: URL;

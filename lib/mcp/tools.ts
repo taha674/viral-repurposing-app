@@ -528,7 +528,9 @@ export function registerTools(server: McpServer): void {
               );
             }
             const reel = await mustGet(id);
-            if (reel.status === "archived") throw new Error(`Reel ${id} is already archived.`);
+            if (reel.status !== "captioned" && reel.status !== "posted") {
+              throw new Error(`Only a Subtitled or Posted reel can be archived; reel ${id} is "${reel.status}".`);
+            }
             return archiveReel(id);
           }
         )

@@ -410,9 +410,18 @@ export async function setStatus(id: number, status: ReelStatus): Promise<void> {
 
 // Board transitions that are not a human resolving the red-line flag — see
 // setStatus's comment for which two transitions ARE that and use it instead.
+// Moving back out of Posted / Scheduled drops what no longer holds (a stale
+// posted_url would miscount per-post metrics); archive keeps both.
 export async function advanceStatus(id: number, status: ReelStatus): Promise<void> {
   const pool = await getPool();
-  await pool.query("UPDATE reels SET status = $1 WHERE id = $2", [status, id]);
+  await pool.query(
+    `UPDATE reels SET status = $1,
+       posted_url = CASE WHEN $1 IN ('posted', 'archived') THEN posted_url END,
+       posted_at = CASE WHEN $1 IN ('posted', 'archived') THEN posted_at END,
+       planned_post_at = CASE WHEN $1 IN ('scheduled', 'posted', 'archived') THEN planned_post_at END
+     WHERE id = $2`,
+    [status, id]
+  );
   await touch(id);
 }
 

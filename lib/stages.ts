@@ -93,9 +93,11 @@ export function previousStage(stage: Stage): Stage | null {
 // The status to set when moving a reel back one column. Scraped is the only
 // column with two statuses ("new" vs "transcribed"), so that case is
 // inferred from whether a transcript is already on record — same inference
-// restoreReel() uses for the Rejected-tray fallback.
+// restoreReel() uses for the Rejected-tray fallback. Posted goes back to
+// Scheduled only if it was ever scheduled (posting straight from Subtitled
+// is allowed), so a Scheduled card always has a time.
 export function backTargetStatus(
-  reel: Pick<Reel, "transcript_status">,
+  reel: Pick<Reel, "transcript_status" | "planned_post_at">,
   stage: Stage
 ): ReelStatus | null {
   const prev = previousStage(stage);
@@ -103,5 +105,6 @@ export function backTargetStatus(
   if (prev === "scraped") {
     return reel.transcript_status === "success" ? "transcribed" : "new";
   }
+  if (prev === "scheduled" && !reel.planned_post_at) return "captioned";
   return STAGES.find((s) => s.id === prev)!.statuses[0];
 }

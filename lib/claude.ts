@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { BetaContentBlockParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
 import { config, hasClaude } from "./config";
 import type { Brand } from "./types";
 import {
@@ -37,11 +37,12 @@ function client(): Anthropic {
 // One structured call, fail-loud on refusal / truncation / empty output:
 // a human reviews the source rather than us retrying. `label` names the call
 // and `tokenEnvVar` the knob to raise, so the operator gets an actionable
-// message. `fallbacks: "default"` lets the API re-run a policy decline on its
-// recommended substitute model inside the same call (still one call).
+// message. No server-side model fallback: the model stays pinned, so a
+// policy decline surfaces to the operator instead of running the red-line
+// prompt on a model nobody chose.
 async function callStructured<T>(opts: {
   system?: string;
-  content: string | BetaContentBlockParam[];
+  content: string | ContentBlockParam[];
   schema: object;
   maxTokens: number;
   label: string;
@@ -54,11 +55,9 @@ async function callStructured<T>(opts: {
   }
   let response;
   try {
-    response = await client().beta.messages.create({
+    response = await client().messages.create({
       model: config.claudeModel,
       max_tokens: opts.maxTokens,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
       ...(opts.system ? { system: opts.system } : {}),
       messages: [{ role: "user", content: opts.content }],
       output_config: {
