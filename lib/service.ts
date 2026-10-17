@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-import { config, voiceIdFor } from "./config";
+import { config, voiceIdFor, hashtagViewThresholdFor } from "./config";
 import { getPool } from "./db";
 import { listAccounts, markScanned } from "./accounts";
 import { listHashtags, markHashtagScanned } from "./hashtags";
@@ -29,7 +29,7 @@ import {
 import { baseSlug, reelFileName } from "./naming";
 import { getScanLimits } from "./scanSettings";
 import { scanAccount, scanHashtag, fetchReel, captionBody, type ScrapedReel } from "./apify";
-import { runAdaptation, classifyTalkingHead, runPublishPack } from "./claude";
+import { runAdaptation, classifyFormat, runPublishPack } from "./claude";
 import type { CoverCandidate } from "./publishPrompt";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
 import {
@@ -906,11 +906,12 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
 // to expensive, mirroring the account scan's cheap-sweep-then-transcript
 // pattern:
 //   1. Cheap hashtag sweep (scanHashtag) — view counts + thumbnails only.
-//   2. View-count qualification (same VIEW_THRESHOLD as account scans),
+//   2. View-count qualification (VIEW_THRESHOLD for Cyrus; the smaller hifz
+//      niche has its own floor, VIEW_THRESHOLD_NURONOMICS),
 //      skipping anything already on record (by shortcode) before spending
 //      a Claude call on it.
-//   3. Talking-head format classification on the thumbnail (Claude vision) —
-//      only reels that read as "person on camera, upscale background" move
+//   3. Per-brand format classification on the thumbnail (Claude vision,
+//      claude.ts#classifyFormat) — only reels in the brand's format move
 //      on. Reels that don't qualify visually are neither inserted nor
 //      transcript-pulled, since the whole point is filtering OUT skits/other
 //      formats before the expensive per-reel transcript call.
@@ -929,7 +930,7 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
     try {
       const scraped = await scanHashtag(hashtag.tag, limits.postsPerHashtag);
       const qualifying = scraped.filter(
-        (r) => r.views !== null && r.views >= config.viewThreshold && r.url
+        (r) => r.views !== null && r.views >= hashtagViewThresholdFor(hashtag.brand) && r.url
       );
 
       let foundForHashtag = 0;
@@ -943,8 +944,8 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
           continue; // can't classify format without a thumbnail
         }
         try {
-          const classification = await classifyTalkingHead(r.thumbnailUrl);
-          if (!classification.isTalkingHead) {
+          const classification = await classifyFormat(r.thumbnailUrl, hashtag.brand);
+          if (!classification.matches) {
             skippedFormat += 1;
             continue;
           }
@@ -976,7 +977,7 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
         null,
         `#${hashtag.tag}`,
         "ok",
-        `${qualifying.length} qualifying, ${skippedFormat} not talking-head, ${foundForHashtag} new`,
+        `${qualifying.length} qualifying, ${skippedFormat} wrong format, ${foundForHashtag} new`,
         foundForHashtag
       );
     } catch (err) {

@@ -78,6 +78,8 @@ export const config = {
   // "paste a URL" shortlist add) and the hashtag scan, where a floor still
   // makes sense.
   viewThreshold: intEnv("VIEW_THRESHOLD", 500_000),
+  // Hashtag-scan floor for Nuronomics: hifz reels rarely reach Cyrus's 500k.
+  viewThresholdNuronomics: intEnv("VIEW_THRESHOLD_NURONOMICS", 50_000),
   // Posts pulled per account per scan sweep — high enough to approximate
   // "the account's available history" rather than just its most-recent
   // handful, while still bounded (project rule: no unbounded pull against a
@@ -104,7 +106,7 @@ export const config = {
   // on that spend for one scan run.
   scanMinNewReelsPerRun: intEnv("SCAN_MIN_NEW_REELS_PER_RUN", 10),
   // Top reels pulled per hashtag during a hashtag scan (before the view-count
-  // and talking-head filters run) — separate knob since hashtag volume/noise
+  // and format filters run) — separate knob since hashtag volume/noise
   // is very different from a tracked account's own post history.
   scanPostsPerHashtag: intEnv("SCAN_POSTS_PER_HASHTAG", 30),
   // Which Apify field counts as "views" for the threshold. Instagram's public
@@ -260,6 +262,10 @@ export function hasInstagram(): boolean {
     config.instagramOwnerIgsid.trim().length > 0 &&
     config.instagramMediaTokenSecret.trim().length > 0
   );
+}
+
+export function hashtagViewThresholdFor(brand: Brand): number {
+  return brand === "nuronomics" ? config.viewThresholdNuronomics : config.viewThreshold;
 }
 
 export function voiceIdFor(brand: Brand): string {

@@ -15,8 +15,9 @@ export default function DiscoveryPage() {
       <p className="muted">
         What the scan (on-demand and weekly) draws from. Tracked accounts are
         swept for their own recent posts; tracked hashtags are swept for
-        top/recent reels matching the tag, filtered to the talking-head
-        format and the view-count bar (500K+). Instagram only — TikTok is a
+        top/recent reels matching the tag, filtered to the brand&apos;s
+        format and view-count bar (Cyrus: talking head, 500K+; Nuronomics:
+        hifz explainers, 50K+). Instagram only — TikTok is a
         later phase.
       </p>
 
@@ -200,7 +201,7 @@ function HashtagsSection() {
       <h2>Tracked Hashtags</h2>
       <p className="muted">
         Reels are pulled from the hashtag, qualified by view count, then
-        checked against the talking-head format before entering the
+        checked against the brand&apos;s format before entering the
         shortlist — this filters out skits and other formats automatically.
       </p>
       <div className="card">

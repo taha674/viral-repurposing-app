@@ -141,35 +141,49 @@ export async function runPublishPack(
   });
 }
 
-// --- Talking-head format classifier (hashtag discovery, 2026-08-24) ---
+// --- Hashtag-scan format filter (2026-08-24; per brand 2026-10-18) ---
 //
 // Hashtag scraping surfaces every format under a tag (skits, memes, montages,
 // talking-head). This classifies a reel's cover thumbnail against the format
-// Taha's tracked accounts use: one person, on camera, speaking, against an
-// upscale/high-class setting. Thumbnail-only (not the full video) — the cover
-// frame is normally enough to tell "person talking to camera" apart from a
-// skit/meme/multi-person format, and it's a single cheap image call instead
-// of downloading and sampling video.
-const TALKING_HEAD_PROMPT = `This image is the cover thumbnail of a viral Instagram Reel.
+// the brand repurposes. Thumbnail-only (not the full video): the cover frame
+// is normally enough to tell the format apart, and it's a single cheap image
+// call instead of downloading and sampling video.
+//
+// Cyrus: one person talking to camera against an upscale background, the
+// format of Taha's tracked finance accounts. Nuronomics: anything that
+// carries a spoken or written explanation about Quran memorisation or
+// revision — a person talking to camera in any setting, or a text-overlay
+// tip slide — since its reels are rebuilt as faceless animations and only
+// the script carries over. Pure recitation has no script to adapt.
+const FORMAT_PROMPTS: Record<Brand, string> = {
+  cyrus: `This image is the cover thumbnail of a viral Instagram Reel.
 
 Classify whether it matches a "talking head" format: ONE individual person, clearly on camera and facing/speaking to the camera, typically set against an affluent, high-class, or luxury background (e.g. a nice office, a mansion or upscale interior, a luxury car, a rooftop skyline). This is the format used by finance and wealth-philosophy influencers.
 
 Do NOT classify as talking head: skits or acted scenes with multiple people, text-overlay/meme slides with no visible speaker, screen recordings, b-roll/montage clips with no one speaking to camera, or group/crowd shots.
 
-Return your answer as the required JSON.`;
+Return your answer as the required JSON.`,
+  nuronomics: `This image is the cover thumbnail of a viral Instagram Reel found under a Quran-memorisation (hifz) hashtag.
 
-const TALKING_HEAD_SCHEMA = {
+Classify whether it matches an "explainer" format worth adapting: someone giving advice, a method, a story or a reminder about memorising, revising or studying the Quran. That includes ONE person speaking to the camera in any setting (home, masjid, car, classroom), or a text-overlay slide or caption card stating a tip or a hook, with or without a visible speaker.
+
+Do NOT match: pure Quran recitation or nasheed clips (a reciter, a mushaf close-up or calligraphy with no tip or hook text), skits, memes, montages with no explanation, or content clearly about something other than Quran study.
+
+Return your answer as the required JSON, with "matches" true for an explainer.`,
+};
+
+const FORMAT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    isTalkingHead: { type: "boolean" },
+    matches: { type: "boolean" },
     reason: { type: "string" },
   },
-  required: ["isTalkingHead", "reason"],
+  required: ["matches", "reason"],
 };
 
-export interface TalkingHeadClassification {
-  isTalkingHead: boolean;
+export interface FormatClassification {
+  matches: boolean;
   reason: string;
 }
 
@@ -181,11 +195,12 @@ function guessImageMimeType(url: string): "image/png" | "image/webp" | "image/jp
 }
 
 // A classification failure (fetch or model) is caught by the caller
-// (lib/service.ts#runHashtagScan) and treated as "skip this candidate," not
-// as a reason to abort the whole hashtag scan.
-export async function classifyTalkingHead(
-  thumbnailUrl: string
-): Promise<TalkingHeadClassification> {
+// (lib/service.ts#scanTrackedHashtags) and treated as "skip this candidate,"
+// not as a reason to abort the whole hashtag scan.
+export async function classifyFormat(
+  thumbnailUrl: string,
+  brand: Brand
+): Promise<FormatClassification> {
   if (!hasClaude()) {
     throw new Error(
       "ANTHROPIC_API_KEY is not set. Add it to .env.local to use hashtag discovery."
@@ -197,17 +212,17 @@ export async function classifyTalkingHead(
   }
   const data = Buffer.from(await imgRes.arrayBuffer()).toString("base64");
 
-  return callStructured<TalkingHeadClassification>({
+  return callStructured<FormatClassification>({
     content: [
       {
         type: "image",
         source: { type: "base64", media_type: guessImageMimeType(thumbnailUrl), data },
       },
-      { type: "text", text: TALKING_HEAD_PROMPT },
+      { type: "text", text: FORMAT_PROMPTS[brand] },
     ],
-    schema: TALKING_HEAD_SCHEMA,
+    schema: FORMAT_SCHEMA,
     maxTokens: 2000,
-    label: "Talking-head classification",
+    label: "Format classification",
     tokenEnvVar: "(fixed 2000 in lib/claude.ts)",
   });
 }
