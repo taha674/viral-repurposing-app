@@ -82,6 +82,7 @@ export async function start() {
       PUBLIC_BASE_URL: BASE,
       // A tiny cap on one platform so the cap refusal is testable.
       ENGAGEMENT_DAILY_CAPS: "x=2",
+      CRON_SECRET: "test-cron-secret",
     },
   });
   let log = "";

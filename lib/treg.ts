@@ -25,6 +25,7 @@ export interface ScrapedReel {
   url: string;
   shortcode: string | null;
   views: number | null;
+  comments: number | null;
   caption: string | null;
   // Hashtags carried on the source post, parsed out of `caption`.
   hashtags: string[];
@@ -176,6 +177,7 @@ export function mapRow(raw: Row): ScrapedReel | null {
       r.play_count, r.plays, r.video_play_count, r.ig_play_count, r.playCount, r.videoPlayCount,
       r.views, r.view_count, r.video_view_count, r.videoViewCount
     ),
+    comments: firstNum(r.comments, r.comment_count, r.comments_count, r.num_comments, obj(r.edge_media_to_comment)?.count),
     caption,
     hashtags: parseHashtags(caption),
     ownerUsername:

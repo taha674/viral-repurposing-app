@@ -241,6 +241,22 @@ async function ensureSchema(pool: Pool): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_provider_spend_at ON provider_spend(at);
 
+    -- Metrics (ticket 09): one row per reading of a posted item.
+    CREATE TABLE IF NOT EXISTS metrics (
+      id                SERIAL PRIMARY KEY,
+      reel_id           INTEGER NOT NULL REFERENCES reels(id) ON DELETE CASCADE,
+      platform          TEXT NOT NULL,
+      read_at           TIMESTAMPTZ NOT NULL,
+      views             BIGINT,
+      three_second_rate DOUBLE PRECISION,
+      saves             INTEGER,
+      comments          INTEGER,
+      shares            INTEGER,
+      source            TEXT NOT NULL DEFAULT 'manual',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_metrics_reel ON metrics(reel_id, read_at);
+
     -- Engagement queue (ticket 13): drafts the operator approves and sends
     -- by hand. lib/engagement.ts.
     CREATE TABLE IF NOT EXISTS engagement (

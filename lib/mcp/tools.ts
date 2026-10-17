@@ -43,6 +43,7 @@ import { withAudit } from "./audit";
 import { downloadVideo } from "./download";
 import { uploadUrl } from "./uploadToken";
 import { BRANDS, parseBrand } from "../brands";
+import { hookSummary, listMetrics, recordMetrics } from "../metrics";
 import {
   ENGAGEMENT_KINDS,
   ENGAGEMENT_PLATFORMS,
@@ -549,6 +550,42 @@ export function registerTools(server: McpServer): void {
         )
       )
     )
+  );
+
+  // ---- Metrics (reading insights is not posting) ----
+  server.registerTool(
+    "record_metrics",
+    {
+      description:
+        "Record one reading for a POSTED item: views, 3-second rate (0-1), saves, comments, shares, on a platform at a date (default now). Readings build up week by week; refused for anything not posted. Public Instagram counts are also read weekly by the app's own cron.",
+      inputSchema: {
+        id: reelId,
+        platform: z.enum(POST_PLATFORMS as [string, ...string[]]),
+        read_at: z.string().optional(),
+        views: z.number().int().nonnegative().optional(),
+        three_second_rate: z.number().min(0).max(1).optional(),
+        saves: z.number().int().nonnegative().optional(),
+        comments: z.number().int().nonnegative().optional(),
+        shares: z.number().int().nonnegative().optional(),
+        rationale: z.string().min(1).describe("Where the numbers come from (insights screenshot, Taha's message)"),
+      },
+    },
+    safe(async ({ id, rationale, ...m }) =>
+      withAudit("record_metrics", "write", { reelId: id, args: { id, ...m }, rationale }, async () => ({
+        recorded: await recordMetrics(id, m),
+        readings: await listMetrics(id),
+      }))
+    )
+  );
+
+  server.registerTool(
+    "get_hook_summary",
+    {
+      description:
+        "The three-hook test so far, per hook (A, B, C, untagged) over posted items: items posted, median views and median 3-second rate (each item's latest reading), total saves and comments; plus month-to-date paid spend (treg in USD, agent paid calls by count). For the Friday digest.",
+      inputSchema: { brand: brandArg },
+    },
+    safe(async ({ brand }) => hookSummary(brand))
   );
 
   // ---- Engagement queue (no send tool: the operator sends by hand) ----

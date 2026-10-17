@@ -1,0 +1,17 @@
+name: Weekly metrics
+
+on:
+  schedule:
+    # Thursday 10:00 UTC, so Friday's digest has fresh numbers.
+    - cron: "0 10 * * 4"
+  workflow_dispatch: {}
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read posted items' public counts through treg
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://viral-repurposing-app-production.up.railway.app/api/cron/metrics
