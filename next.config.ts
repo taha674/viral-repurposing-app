@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // `npm test` runs its own dev server alongside a normal one (test/harness.mjs).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // pg ships native-ish bindings via pg-native optional dep — keep it out of
   // the Server Components/Route Handler bundle and let it load via native
   // require. Same reasoning for the caption-burn deps: ffmpeg-static and
