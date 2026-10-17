@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getReel } from "@/lib/reels";
-import { streamFile } from "@/lib/fileStream";
+import { mimeOf, streamFile } from "@/lib/fileStream";
 
 // Streams the captioned, metadata-stripped final video — the remote-deploy
 // equivalent of "Reveal in Finder" (which only works on the local machine).
@@ -20,5 +20,5 @@ export async function GET(
     );
   }
   const name = reel.slug ? `${reel.slug}-subtitled.mp4` : `reel_${reel.id}_captioned.mp4`;
-  return streamFile(request, reel.captions_video_path, "video/mp4", "attachment", name);
+  return streamFile(request, reel.captions_video_path, mimeOf(reel.captions_video_path), "attachment", name);
 }

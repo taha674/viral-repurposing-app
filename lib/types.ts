@@ -13,13 +13,37 @@ export type ReelSource = "weekly_scan" | "manual" | "hashtag_scan" | "keyword_sc
 // pages, C the adaptive method.
 export type Hook = "A" | "B" | "C";
 export const HOOKS: Hook[] = ["A", "B", "C"];
+// What a board item is (2026-10-18). Reels are the original pipeline;
+// stories and text posts start in pending_approval and need approve_item;
+// carousels follow the script rail into slides.
+export type ItemKind = "reel" | "carousel" | "story" | "text";
+// Where a text post goes out.
+export type TextChannel = "whatsapp_channel" | "whatsapp_community" | "email" | "prelaunch";
+export const TEXT_CHANNELS: TextChannel[] = ["whatsapp_channel", "whatsapp_community", "email", "prelaunch"];
+
 // Where a posted item went out. One live link per platform (post_links).
-export type PostPlatform = "instagram" | "youtube_shorts" | "tiktok";
-export const POST_PLATFORMS: PostPlatform[] = ["instagram", "youtube_shorts", "tiktok"];
+export type PostPlatform =
+  | "instagram"
+  | "youtube_shorts"
+  | "tiktok"
+  | "whatsapp_channel"
+  | "whatsapp_community"
+  | "other";
+export const POST_PLATFORMS: PostPlatform[] = [
+  "instagram",
+  "youtube_shorts",
+  "tiktok",
+  "whatsapp_channel",
+  "whatsapp_community",
+  "other",
+];
 export const PLATFORM_LABELS: Record<PostPlatform, string> = {
   instagram: "Instagram",
   youtube_shorts: "YouTube Shorts",
   tiktok: "TikTok",
+  whatsapp_channel: "WhatsApp Channel",
+  whatsapp_community: "WhatsApp Community",
+  other: "Other",
 };
 export interface PostLink {
   platform: PostPlatform;
@@ -87,7 +111,8 @@ export type ReelStatus =
   | "adapted" // adaptation has run, awaiting approval
   | "approved" // script approved, voiceover stage
   | "video" // HeyGen video uploaded, awaiting subtitle burn
-  | "captioned" // subtitles burned + metadata stripped — finished file
+  | "pending_approval" // story / text post waiting for approve_item
+  | "captioned" // finished: subtitles burned + metadata stripped (reel), or an approved story / text post
   | "scheduled" // operator picked a post time (planned_post_at)
   | "posted" // operator published it by hand (post_links). Not "archived":
   //          archive deletes the files, posting does not.
@@ -186,6 +211,9 @@ export interface Reel {
   // An original with no voiceover (on-screen text only): Approved goes
   // straight to Video and the upload is stripped, not burned.
   voiceless: boolean;
+  kind: ItemKind;
+  // Text posts only: where it goes out. The body is adapted_script.
+  text_channel: TextChannel | null;
   // Launch content OS (2026-10-18). The app never posts: these record what
   // the operator planned and did.
   planned_post_at: string | null;

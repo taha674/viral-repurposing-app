@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Reel, Analysis } from "@/lib/types";
-import { stageOf, previousStage, backTargetStatus, STAGES } from "@/lib/stages";
+import { stageOf, backTargetStatus, STAGES } from "@/lib/stages";
 import type { Stage } from "@/lib/stages";
 import type { StageProps } from "./stageTypes";
 import ScrapedStage from "./stages/ScrapedStage";
@@ -59,9 +59,8 @@ export default function StageModal({
   // ScrapedStage) and has no earlier column to move back to.
   const isWorkingStage = STAGES.some((s) => s.id === stage);
   const showBoardNav = isWorkingStage && stage !== "scraped";
-  const prevStage: Stage | null = showBoardNav
-    ? previousStage(stage as Stage)
-    : null;
+  const backTarget = showBoardNav ? backTargetStatus(reel, stage as Stage) : null;
+  const prevStage: Stage | null = backTarget ? (stageOf({ status: backTarget }) as Stage) : null;
   const prevTitle = prevStage
     ? STAGES.find((s) => s.id === prevStage)?.title
     : null;
@@ -164,7 +163,7 @@ export default function StageModal({
           {stage === "adaptation" && <AdaptationStage {...stageProps} />}
           {stage === "audio" && <AudioStage {...stageProps} />}
           {stage === "video" && <VideoStage {...stageProps} />}
-          {(stage === "subtitled" || stage === "scheduled" || stage === "posted") && (
+          {(stage === "pending" || stage === "subtitled" || stage === "scheduled" || stage === "posted") && (
             <SubtitledStage {...stageProps} />
           )}
           {(stage === "rejected" || stage === "done") && (

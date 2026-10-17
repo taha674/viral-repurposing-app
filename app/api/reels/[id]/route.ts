@@ -6,7 +6,7 @@ import {
   advanceStatus,
   parseAnalysis,
 } from "@/lib/reels";
-import { archiveReel, scheduleItem, markPosted } from "@/lib/service";
+import { archiveReel, scheduleItem, markPosted, approveItem } from "@/lib/service";
 import { backTargetStatus, stageOf, type Stage } from "@/lib/stages";
 import type { ReelStatus } from "@/lib/types";
 
@@ -79,6 +79,7 @@ export async function PATCH(
     if (body.planned_post_at !== undefined) await scheduleItem(reelId, String(body.planned_post_at));
     // The operator in the web app is the human who posted, so no quoted
     // reply here; that rail is for the agent (lib/mcp/tools.ts#mark_posted).
+    if (body.mark_posted_without_link === true) await markPosted(reelId, []);
     if (body.post_link !== undefined) {
       await markPosted(reelId, [{ platform: String(body.post_link?.platform), url: String(body.post_link?.url) }]);
     }
@@ -92,8 +93,16 @@ export async function PATCH(
     // and "scheduled" needs a time (planned_post_at above).
     const current = (await getReel(reelId))!;
     const currentStage = stageOf(current);
-    const isBackMove =
-      (currentStage === "scheduled" || currentStage === "posted") &&
+    // The operator approving a story or text post in the web app.
+    if (body.status === "captioned" && current.status === "pending_approval") {
+      try {
+        await approveItem(reelId);
+      } catch (err) {
+        return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+      }
+      return NextResponse.json({ reel: await getReel(reelId) });
+    }
+    const isBackMove = currentStage !== "rejected" && currentStage !== "done" &&
       body.status === backTargetStatus(current, currentStage as Stage);
     if (!isBackMove && !CLIENT_SETTABLE_STATUSES.includes(body.status)) {
       return NextResponse.json({ error: "invalid status" }, { status: 400 });

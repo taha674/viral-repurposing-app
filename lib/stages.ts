@@ -10,6 +10,7 @@ export type Stage =
   | "adaptation"
   | "audio"
   | "video"
+  | "pending"
   | "subtitled"
   | "scheduled"
   | "posted";
@@ -48,9 +49,15 @@ export const STAGES: { id: Stage; title: string; blurb: string; statuses: ReelSt
     statuses: ["video"],
   },
   {
+    id: "pending",
+    title: "Pending approval",
+    blurb: "Stories and text posts waiting for the operator's approval.",
+    statuses: ["pending_approval"],
+  },
+  {
     id: "subtitled",
-    title: "Subtitled",
-    blurb: "Finished, metadata-stripped file — ready to download.",
+    title: "Finished",
+    blurb: "Subtitled and metadata-stripped, or an approved story or text post. Ready to schedule.",
     statuses: ["captioned"],
   },
   {
@@ -97,9 +104,16 @@ export function previousStage(stage: Stage): Stage | null {
 // Scheduled only if it was ever scheduled (posting straight from Subtitled
 // is allowed), so a Scheduled card always has a time.
 export function backTargetStatus(
-  reel: Pick<Reel, "transcript_status" | "planned_post_at">,
+  reel: Pick<Reel, "transcript_status" | "planned_post_at" | "kind">,
   stage: Stage
 ): ReelStatus | null {
+  // Stories and text posts have only Pending approval before Finished.
+  if (reel.kind === "story" || reel.kind === "text") {
+    if (stage === "pending") return null;
+    if (stage === "subtitled") return "pending_approval";
+  }
+  if (stage === "pending") return null;
+  if (stage === "subtitled") return "video";
   const prev = previousStage(stage);
   if (!prev) return null;
   if (prev === "scraped") {

@@ -51,6 +51,7 @@ export default function ReelCard({
         <span>{reel.views?.toLocaleString() ?? "—"} views</span>
         <span>·</span>
         <span>{reel.source}</span>
+        {reel.kind !== "reel" && <span className="badge">{reel.kind}</span>}
         {reel.hook && <span className="badge">hook {reel.hook}</span>}
         {reel.post_links.map((l) => (
           <span key={l.platform} className="badge green">

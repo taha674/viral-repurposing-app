@@ -5,12 +5,15 @@ import type { StageProps } from "../stageTypes";
 import { POST_PLATFORMS, PLATFORM_LABELS, type PostPlatform } from "@/lib/types";
 import PublishPackPanel from "../PublishPackPanel";
 
-// Column 6 (Subtitled). The finished, metadata-stripped file, plus the
+// Finished column (and Pending approval, Scheduled, Posted). For a reel: the
+// finished, metadata-stripped file, plus the
 // publish pack — this is the moment the operator is actually about to post,
 // so the suggested caption/hashtags/cover hook belong here as well as back
 // at Adaptation. Also renders the Scheduled and Posted columns: Schedule and
 // Mark posted only record what the operator plans and does (this project
-// never posts), and Archive deletes the files.
+// never posts), and Archive deletes the files. A story shows its image or
+// video and a text post its body; both get an Approve button while pending
+// (the operator approving here is the human gate, no quote needed).
 export default function SubtitledStage(props: StageProps) {
   const { reel, busy, setBusy, setErr, onBoardChange, onClose, reload } = props;
   const [plannedAt, setPlannedAt] = useState(
@@ -20,17 +23,21 @@ export default function SubtitledStage(props: StageProps) {
   const [postedUrl, setPostedUrl] = useState("");
 
   // Schedule / posted are bookkeeping: the operator publishes by hand.
-  async function save(field: "planned_post_at" | "post_link") {
+  async function save(field: "planned_post_at" | "post_link" | "approve" | "sent") {
     setErr("");
     setBusy(field);
+    const body =
+      field === "planned_post_at"
+        ? { planned_post_at: new Date(plannedAt).toISOString() }
+        : field === "post_link"
+        ? { post_link: { platform, url: postedUrl } }
+        : field === "approve"
+        ? { status: "captioned" }
+        : { mark_posted_without_link: true };
     const res = await fetch(`/api/reels/${reel.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(
-        field === "planned_post_at"
-          ? { planned_post_at: new Date(plannedAt).toISOString() }
-          : { post_link: { platform, url: postedUrl } }
-      ),
+      body: JSON.stringify(body),
     });
     setBusy("");
     if (!res.ok) {
@@ -72,17 +79,52 @@ export default function SubtitledStage(props: StageProps) {
     onClose();
   }
 
+  const pending = reel.status === "pending_approval";
+  const fileUrl = `/api/reels/${reel.id}/captions/stream?v=${encodeURIComponent(reel.updated_at)}`;
+  const isImage = /\.(png|jpe?g|webp)$/i.test(reel.captions_video_path ?? "");
+
+  if (reel.kind === "text") {
+    return (
+      <>
+        <h2>Text post · {reel.text_channel?.replace("_", " ")}</h2>
+        <pre style={{ whiteSpace: "pre-wrap" }}>{reel.adapted_script}</pre>
+        {pending && (
+          <button onClick={() => save("approve")} disabled={busy === "approve"}>
+            {busy === "approve" ? "Approving…" : "Approve"}
+          </button>
+        )}
+        {reel.text_channel === "email" && (reel.status === "captioned" || reel.status === "scheduled") && (
+          <button className="secondary" onClick={() => save("sent")} disabled={busy === "sent"}>
+            Mark sent (no link)
+          </button>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
-      <h2>Finished video</h2>
-      {/* updated_at busts the cache after a re-burn — same reasoning as the
-          voiceover <audio> tag in AudioStage. */}
-      <video
-        key={reel.updated_at}
-        controls
-        style={{ width: "100%", borderRadius: 8 }}
-        src={`/api/reels/${reel.id}/captions/stream?v=${encodeURIComponent(reel.updated_at)}`}
-      />
+      <h2>{reel.kind === "story" ? "Story" : "Finished video"}</h2>
+      {reel.kind === "story" && <p className="muted">{reel.transcript}</p>}
+      {reel.captions_status !== "success" ? (
+        <p className="muted">No file uploaded yet.</p>
+      ) : isImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={fileUrl} alt="" style={{ width: "100%", borderRadius: 8 }} />
+      ) : (
+        // updated_at busts the cache after a re-burn — same reasoning as the
+        // voiceover <audio> tag in AudioStage.
+        <video key={reel.updated_at} controls style={{ width: "100%", borderRadius: 8 }} src={fileUrl} />
+      )}
+      {pending && (
+        <div className="row" style={{ marginTop: 8 }}>
+          <button onClick={() => save("approve")} disabled={busy === "approve" || reel.captions_status !== "success"}>
+            {busy === "approve" ? "Approving…" : "Approve"}
+          </button>
+        </div>
+      )}
+      {!pending && (
+      <>
       <div className="row" style={{ marginTop: 8 }}>
         <a
           className="secondary button-like"
@@ -93,7 +135,7 @@ export default function SubtitledStage(props: StageProps) {
         </a>
       </div>
 
-      <PublishPackPanel {...props} />
+      {reel.kind !== "story" && <PublishPackPanel {...props} />}
 
       {reel.status !== "posted" && (
         <div className="row" style={{ marginTop: 16, gap: 8, flexWrap: "wrap" }}>
@@ -158,6 +200,8 @@ export default function SubtitledStage(props: StageProps) {
           {busy === "archive" ? "Archiving…" : "Archive (deletes files)"}
         </button>
       </div>
+      </>
+      )}
     </>
   );
 }

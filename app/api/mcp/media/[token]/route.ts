@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getReel } from "@/lib/reels";
-import { streamFile } from "@/lib/fileStream";
+import { mimeOf, streamFile } from "@/lib/fileStream";
 import { verifyMcpMediaToken } from "@/lib/mcp/mediaToken";
 
 // Public per proxy.ts; self-authenticated by the signed token get_media_links
@@ -20,7 +20,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     if (reel.captions_status !== "success" || !reel.captions_video_path) {
       return NextResponse.json({ error: "No finished video for this reel yet." }, { status: 404 });
     }
-    return streamFile(request, reel.captions_video_path, "video/mp4", "inline", `reel-${reel.id}.mp4`);
+    return streamFile(request, reel.captions_video_path, mimeOf(reel.captions_video_path), "inline", `reel-${reel.id}.${reel.captions_video_path.split(".").pop()}`);
   }
   if (reel.voiceover_status !== "success" || !reel.voiceover_path) {
     return NextResponse.json({ error: "No voiceover for this reel yet." }, { status: 404 });

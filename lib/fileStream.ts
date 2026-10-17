@@ -11,6 +11,15 @@ import fs from "node:fs";
 import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 
+// Content type of a finished file: a reel or story video, or a story image.
+export function mimeOf(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase();
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "webp") return "image/webp";
+  return "video/mp4";
+}
+
 export function streamFile(
   request: Request,
   filePath: string,

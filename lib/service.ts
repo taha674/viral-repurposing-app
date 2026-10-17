@@ -47,13 +47,15 @@ import {
   extractAudioForTranscription,
   burnSubtitlesAndStripMetadata,
   stripMetadata,
+  stripImageMetadata,
 } from "./ffmpeg";
 import { transcribeWavForWordTimings } from "./whisper";
 import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } from "./retention";
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import { buildPunchSchedule, punchInFilter } from "./punchIn";
 import { POST_PLATFORMS, type PostPlatform } from "./types";
-import type { Brand, Hook, Reel, RedLineFlag, PublishPack, TrackedAccount } from "./types";
+import type { Brand, Hook, Reel, RedLineFlag, PublishPack, TrackedAccount, TextChannel } from "./types";
+import { TEXT_CHANNELS } from "./types";
 
 // Returns the reel's slug, minting it if it doesn't have one yet. Minting
 // normally happens on accept (acceptReel, below); this fallback only fires
@@ -747,7 +749,9 @@ export async function markPosted(
   if (![...SCHEDULE_OR_POST_FROM, "posted"].includes(reel.status)) {
     throw new Error(`Only a finished (Subtitled), scheduled or posted item can take a post link; reel ${reelId} is "${reel.status}".`);
   }
-  if (links.length === 0) throw new Error("Give at least one post link.");
+  // Email has no public link: a sent email is recorded with none.
+  const linkless = reel.kind === "text" && reel.text_channel === "email";
+  if (links.length === 0 && !linkless) throw new Error("Give at least one post link.");
   const clean = links.map((l) => {
     if (!POST_PLATFORMS.includes(l.platform as PostPlatform)) {
       throw new Error(`Platform must be one of ${POST_PLATFORMS.join(", ")} (got ${l.platform}).`);
@@ -762,6 +766,99 @@ export async function markPosted(
     return { platform: l.platform as PostPlatform, url: url.toString() };
   });
   await setPosted(reelId, clean);
+  return (await getReel(reelId))!;
+}
+
+// --- Stories and text posts (tickets 11, 12) ---
+// Both start in Pending approval and reach Finished only through
+// approveItem: the web app's Approve button (the operator) or MCP
+// approve_item (the agent, with the operator's quoted reply). Neither goes
+// through adaptation; their text comes from the approved hook bank.
+async function addPending(fields: Parameters<typeof insertReel>[0]): Promise<Reel> {
+  const reel = await insertReel(fields);
+  await ensureSlug(reel);
+  await advanceStatus(reel.id, "pending_approval");
+  return (await getReel(reel.id))!;
+}
+
+export async function addStory(input: { brand: Brand; text: string; hook: Hook | null }): Promise<Reel> {
+  if (!input.text.trim()) throw new Error("A story needs a short description of what it shows.");
+  return addPending({
+    brand: input.brand,
+    url: "",
+    source: "original",
+    kind: "story",
+    transcript: input.text.trim(),
+    transcript_status: "success",
+    hook: input.hook,
+  });
+}
+
+export async function addTextPost(input: {
+  brand: Brand;
+  channel: string;
+  body: string;
+  hook: Hook | null;
+}): Promise<Reel> {
+  if (!TEXT_CHANNELS.includes(input.channel as TextChannel)) {
+    throw new Error(`Channel must be one of ${TEXT_CHANNELS.join(", ")}.`);
+  }
+  if (!input.body.trim()) throw new Error("A text post needs a body.");
+  return addPending({
+    brand: input.brand,
+    url: "",
+    source: "original",
+    kind: "text",
+    text_channel: input.channel as TextChannel,
+    transcript: input.body.trim(),
+    transcript_status: "success",
+    adapted_script: input.body.trim(),
+    hook: input.hook,
+  });
+}
+
+// The story's rendered image or short video, metadata-stripped into the
+// finished-file slot. Re-uploadable until approved.
+export async function saveStoryFile(reelId: number, buffer: Buffer, fileName: string): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.kind !== "story") throw new Error(`Reel ${reelId} is not a story.`);
+  if (reel.status !== "pending_approval") throw new Error("A story's file can only change while it is pending approval.");
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  const isImage = ["png", "jpg", "jpeg", "webp"].includes(ext);
+  if (!isImage && !["mp4", "mov"].includes(ext)) {
+    throw new Error("A story file must be a PNG, JPG, WebP, MP4 or MOV.");
+  }
+  await tryAutoPurge("saveStoryFile");
+  const slug = await ensureSlug(reel);
+  const dir = path.join(config.reelsOutputDir, slug);
+  fs.mkdirSync(dir, { recursive: true });
+  const raw = path.join(dir, `${slug}-story-upload.${ext}`);
+  const out = path.join(dir, `${slug}-story.${isImage ? ext : "mp4"}`);
+  fs.writeFileSync(raw, buffer);
+  try {
+    if (isImage) await stripImageMetadata(raw, out);
+    else await stripMetadata(raw, out);
+  } finally {
+    fs.rmSync(raw, { force: true });
+  }
+  await setCaptions(reelId, "success", out, null);
+  return (await getReel(reelId))!;
+}
+
+// Pending approval -> Finished. The agent-side rail (operator_confirmed +
+// quoted reply) is in lib/mcp/tools.ts, like approve_script's.
+export async function approveItem(reelId: number): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.status !== "pending_approval") {
+    throw new Error(`Reel ${reelId} is "${reel.status}", not pending approval.`);
+  }
+  if (reel.kind === "story" && reel.captions_status !== "success") {
+    throw new Error("Upload the story's image or video before approving it.");
+  }
+  if (reel.kind === "text" && !reel.adapted_script?.trim()) throw new Error("The text post has no body.");
+  await advanceStatus(reelId, "captioned");
   return (await getReel(reelId))!;
 }
 
@@ -841,6 +938,8 @@ export async function addManualReel(
         thumbnail_url: scraped?.thumbnailUrl ?? null,
         hook: null,
         voiceless: false,
+        kind: "reel",
+        text_channel: null,
         planned_post_at: null,
         post_links: [],
         created_at: "",

@@ -15,6 +15,9 @@ import {
   acceptReel,
   addManualReel,
   addOriginal,
+  addStory,
+  addTextPost,
+  approveItem,
   scheduleItem,
   unscheduleItem,
   markPosted,
@@ -34,7 +37,7 @@ import { listScanLogs } from "../scanLogs";
 import { STAGES, stageOf, backTargetStatus } from "../stages";
 import type { Stage } from "../stages";
 import { mcpMediaUrl } from "./mediaToken";
-import { HOOKS, POST_PLATFORMS, type Brand, type Hook, type Reel, type PublishPack } from "../types";
+import { HOOKS, POST_PLATFORMS, TEXT_CHANNELS, type Brand, type Hook, type Reel, type PublishPack } from "../types";
 import { withAudit } from "./audit";
 import { downloadVideo } from "./download";
 import { uploadUrl } from "./uploadToken";
@@ -119,6 +122,10 @@ function allowedActions(reel: Reel): string[] {
     case "posted":
       a.push("get_media_links", "mark_posted", "move_back", "archive_reel");
       break;
+    case "pending_approval":
+      a.push("approve_item", "edit_reel", "reject_reel");
+      if (reel.kind === "story") a.push("create_video_upload_link");
+      break;
     case "rejected":
     case "archived":
       a.push("restore_reel");
@@ -144,9 +151,18 @@ function presentReel(reel: Reel) {
 // is reported, not invented.
 function readyPost(reel: Reel) {
   const pack = reel.publish_pack;
+  if (reel.kind === "text") {
+    return {
+      id: reel.id, brand: reel.brand, kind: reel.kind, hook: reel.hook, slug: reel.slug,
+      planned_post_at: reel.planned_post_at, channel: reel.text_channel, body: reel.adapted_script, missing: [],
+    };
+  }
   return {
     id: reel.id,
     brand: reel.brand,
+    kind: reel.kind,
+    // A story's description of what it shows.
+    ...(reel.kind === "story" ? { text: reel.transcript } : {}),
     hook: reel.hook,
     slug: reel.slug,
     planned_post_at: reel.planned_post_at,
@@ -159,7 +175,8 @@ function readyPost(reel: Reel) {
     cover_text: pack?.thumbnail_text.map((t) => t.text) ?? [],
     cover_frame_seconds: pack?.cover_frame_seconds ?? null,
     hook_mode: pack?.hook_mode ?? null,
-    missing: pack ? [] : ["publish_pack"],
+    // Stories carry no publish pack.
+    missing: pack || reel.kind === "story" ? [] : ["publish_pack"],
   };
 }
 
@@ -405,6 +422,74 @@ export function registerTools(server: McpServer): void {
       presentReel(
         await withAudit("add_original", "write", { args: { brand, hook, voiceless, script_chars: script.length }, rationale }, () =>
           addOriginal({ brand: parseBrand(brand), script, hook: (hook as Hook | undefined) ?? null, voiceless })
+        )
+      )
+    )
+  );
+
+  server.registerTool(
+    "add_story",
+    {
+      description:
+        "Add the day's story: a short description of what it shows, plus the rendered image or short video uploaded through the returned upload_url (field 'video', any of PNG/JPG/WebP/MP4/MOV; stripped on upload). It starts in Pending approval and can only be scheduled after approve_item.",
+      inputSchema: { text: z.string().min(1), brand: brandArg, hook: hookArg.optional(), rationale: z.string().min(1) },
+    },
+    safe(async ({ text, brand, hook, rationale }) => {
+      const reel = await withAudit("add_story", "write", { args: { brand, hook, text }, rationale }, () =>
+        addStory({ brand: parseBrand(brand), text, hook: (hook as Hook | undefined) ?? null })
+      );
+      return { ...presentReel(reel), upload_url: uploadUrl(reel.id), upload_expires_in_minutes: 15 };
+    })
+  );
+
+  server.registerTool(
+    "add_text_post",
+    {
+      description:
+        "Add a text post (a WhatsApp Channel post, WhatsApp Community message, email or prelaunch piece) with its channel and body. It starts in Pending approval and can only be scheduled after approve_item. The app never sends it.",
+      inputSchema: {
+        channel: z.enum(TEXT_CHANNELS as [string, ...string[]]),
+        body: z.string().min(1),
+        brand: brandArg,
+        hook: hookArg.optional(),
+        rationale: z.string().min(1),
+      },
+    },
+    safe(async ({ channel, body, brand, hook, rationale }) =>
+      presentReel(
+        await withAudit("add_text_post", "write", { args: { brand, hook, channel, body_chars: body.length }, rationale }, () =>
+          addTextPost({ brand: parseBrand(brand), channel, body, hook: (hook as Hook | undefined) ?? null })
+        )
+      )
+    )
+  );
+
+  server.registerTool(
+    "approve_item",
+    {
+      description:
+        "APPROVAL GATE for a story or text post: Pending approval → Finished (then schedule_item). ALWAYS ask the operator on Telegram first (show the story or the text), and pass operator_confirmed=true with confirmation_note quoting their reply — refused otherwise.",
+      inputSchema: {
+        id: reelId,
+        rationale: z.string().min(1),
+        operator_confirmed: z.boolean(),
+        confirmation_note: z.string().min(1).describe("The operator's Telegram reply, quoted"),
+      },
+    },
+    safe(async ({ id, rationale, operator_confirmed, confirmation_note }) =>
+      presentReel(
+        await withAudit(
+          "approve_item",
+          "write",
+          { reelId: id, args: { id, operator_confirmed, confirmation_note }, rationale },
+          async () => {
+            if (!operator_confirmed || !confirmation_note.trim()) {
+              throw new Error(
+                `Approving item ${id} needs the operator's word. Ask on Telegram, then re-call with operator_confirmed=true and confirmation_note quoting their reply.`
+              );
+            }
+            return approveItem(id);
+          }
         )
       )
     )
@@ -674,8 +759,7 @@ export function registerTools(server: McpServer): void {
         id: reelId,
         links: z
           .array(z.object({ platform: z.enum(POST_PLATFORMS as [string, ...string[]]), url: z.string().url() }))
-          .min(1)
-          .describe("One entry per platform: instagram | youtube_shorts | tiktok"),
+          .describe("One entry per platform. May be empty only for an email text post, which has no link."),
         rationale: z.string().min(1),
         operator_confirmed: z.boolean(),
         confirmation_note: z.string().min(1).describe("The operator's Telegram reply, quoted"),
@@ -748,12 +832,13 @@ export function registerTools(server: McpServer): void {
     "create_video_upload_link",
     {
       description:
-        "Get a one-off signed URL (15 min) for uploading the finished video from a local file: `curl -F video=@file.mp4 <url>`. Reel must be in the Video stage. Then call burn_captions.",
+        "Get a one-off signed URL (15 min) for uploading a file from local disk: `curl -F video=@file.mp4 <url>`. A reel must be in the Video stage (then call burn_captions). A story takes its rendered image or short video (PNG, JPG, WebP, MP4, MOV) while pending approval; it is metadata-stripped on upload.",
       inputSchema: { id: reelId },
     },
     safe(async ({ id }) => {
       const reel = await mustGet(id);
-      if (reel.status !== "video") throw new Error('Send this reel to the "Video" stage first (send_to_video).');
+      const storyOk = reel.kind === "story" && reel.status === "pending_approval";
+      if (reel.status !== "video" && !storyOk) throw new Error('Send this reel to the "Video" stage first (send_to_video).');
       return { upload_url: uploadUrl(id), method: "POST multipart/form-data, field 'video'", expires_in_minutes: 15, max_mb: config.captionsMaxVideoMb };
     })
   );

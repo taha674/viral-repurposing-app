@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getReel } from "@/lib/reels";
-import { streamFile } from "@/lib/fileStream";
+import { mimeOf, streamFile } from "@/lib/fileStream";
 
 // Inline video for the Subtitled stage's <video> player — same file as the
 // download route, but Content-Disposition: inline and Range-aware so the
@@ -21,5 +21,5 @@ export async function GET(
     );
   }
   const name = reel.slug ? `${reel.slug}-subtitled.mp4` : `reel_${reel.id}_captioned.mp4`;
-  return streamFile(request, reel.captions_video_path, "video/mp4", "inline", name);
+  return streamFile(request, reel.captions_video_path, mimeOf(reel.captions_video_path), "inline", name);
 }

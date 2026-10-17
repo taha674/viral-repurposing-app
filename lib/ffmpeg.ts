@@ -105,6 +105,16 @@ export async function stripMetadata(videoPath: string, outPath: string): Promise
   );
 }
 
+// Metadata strip for a story image: re-encoded (EXIF lives inside the JPEG
+// data, so a stream copy would keep it), one frame, no tags.
+export async function stripImageMetadata(imagePath: string, outPath: string): Promise<void> {
+  await execFileAsync(
+    FFMPEG,
+    ["-y", "-i", imagePath, "-map_metadata", "-1", "-frames:v", "1", "-fflags", "+bitexact", "-flags:v", "+bitexact", outPath],
+    { timeout: config.captionsFfmpegTimeoutMs }
+  );
+}
+
 // Burns the given ASS subtitle file into the video and strips all metadata
 // in the same pass (project rule: every video the pipeline produces must be
 // metadata-stripped before it's "done"). Re-encodes video (subtitles are

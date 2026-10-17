@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { config } from "@/lib/config";
-import { saveSourceVideo } from "@/lib/service";
+import { saveSourceVideo, saveStoryFile } from "@/lib/service";
+import { getReel } from "@/lib/reels";
 import { withAudit } from "@/lib/mcp/audit";
 import { verifyUploadToken } from "@/lib/mcp/uploadToken";
 
@@ -28,9 +29,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       "upload_video_via_link",
       "write",
       { reelId: verified.reelId, args: { bytes: buffer.length } },
-      () => saveSourceVideo(verified.reelId, buffer)
+      async () =>
+        (await getReel(verified.reelId))?.kind === "story"
+          ? saveStoryFile(verified.reelId, buffer, file.name)
+          : saveSourceVideo(verified.reelId, buffer)
     );
-    return NextResponse.json({ ok: true, reel_id: reel.id, next: "call burn_captions" });
+    return NextResponse.json({
+      ok: true,
+      reel_id: reel.id,
+      next: reel.kind === "story" ? "ask the operator, then approve_item" : "call burn_captions",
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Video upload failed";
     return NextResponse.json({ error: message }, { status: 500 });
