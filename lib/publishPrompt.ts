@@ -1,9 +1,9 @@
-// Publish-pack prompt (2026-09-12) — the second, independent Gemini call.
+// Publish-pack prompt (2026-09-12) — the second, independent Claude call.
 //
 // Deliberately NOT folded into ADAPTATION_SCHEMA / buildSystemPrompt(), for
 // two concrete reasons:
-//   1. ADAPT_MAX_OUTPUT_TOKENS is 2000 and MAX_TOKENS is a hard throw in
-//      gemini.ts#extractResult — adding four more fields to that call would
+//   1. ADAPT_MAX_OUTPUT_TOKENS is a hard cap and max_tokens is a hard throw in
+//      claude.ts#callStructured — adding four more fields to that call would
 //      put it near the ceiling on long scripts.
 //   2. If the operator has ever saved a custom adaptation prompt, the
 //      settings override is returned verbatim (prompt.ts#getEffectiveSystemPrompt).
@@ -276,9 +276,10 @@ export async function resetPublishSystemPrompt(brand: Brand): Promise<void> {
   await deleteSetting(brandKey(PUBLISH_PROMPT_SETTING_KEY, brand));
 }
 
-// Gemini structured-output schema. Same subset rules as ADAPTATION_SCHEMA in
-// prompt.ts: type/properties/required/items/enum/description/additionalProperties,
-// plus Gemini's non-standard propertyOrdering.
+// Claude structured-output schema. Same rules as ADAPTATION_SCHEMA in
+// prompt.ts. Property order is generation order: caption first (it forces
+// engagement with the script before the hook work), flag last so it's chosen
+// with everything the model just wrote already in context.
 //
 // Note cover_frame_index is an integer, not a nullable timestamp: making the
 // model choose from the candidate list we sent means it cannot emit a frame
@@ -328,7 +329,6 @@ export const PUBLISH_PACK_SCHEMA = {
           },
         },
         required: ["text", "technique", "why_not_clickbait"],
-        propertyOrdering: ["text", "technique", "why_not_clickbait"],
       },
       description: "Exactly 3 cover text options.",
     },
@@ -357,21 +357,6 @@ export const PUBLISH_PACK_SCHEMA = {
     },
   },
   required: [
-    "caption",
-    "caption_rationale",
-    "hashtags",
-    "hashtags_rejected",
-    "thumbnail_text",
-    "hook_mode",
-    "hook_mode_reason",
-    "cover_frame_index",
-    "red_line_flag",
-    "red_line_reason",
-  ],
-  // Caption first (it forces engagement with the script's substance before
-  // the short-form hook work), flag last so it's chosen with everything the
-  // model just wrote already in context.
-  propertyOrdering: [
     "caption",
     "caption_rationale",
     "hashtags",

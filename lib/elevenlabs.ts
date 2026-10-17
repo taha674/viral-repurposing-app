@@ -3,7 +3,7 @@ import type { VoiceoverAlignment } from "./types";
 
 // Only transient transport/quota failures are worth a second attempt.
 // Auth/validation failures are deterministic — retrying just burns quota.
-// Same shape as gemini.ts's isRetryable, applied here to fetch() responses.
+// Same rule as the Claude SDK's retry (429 / 5xx), applied here to fetch() responses.
 function isRetryable(err: unknown): boolean {
   const status = (err as { status?: number })?.status;
   if (typeof status === "number") return status === 429 || status >= 500;

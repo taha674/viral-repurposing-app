@@ -29,7 +29,7 @@ import {
 import { baseSlug, reelFileName } from "./naming";
 import { getScanLimits } from "./scanSettings";
 import { scanAccount, scanHashtag, fetchReel, captionBody, type ScrapedReel } from "./apify";
-import { runAdaptation, classifyTalkingHead, runPublishPack } from "./gemini";
+import { runAdaptation, classifyTalkingHead, runPublishPack } from "./claude";
 import type { CoverCandidate } from "./publishPrompt";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
 import {
@@ -908,8 +908,8 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
 //   1. Cheap hashtag sweep (scanHashtag) — view counts + thumbnails only.
 //   2. View-count qualification (same VIEW_THRESHOLD as account scans),
 //      skipping anything already on record (by shortcode) before spending
-//      a Gemini call on it.
-//   3. Talking-head format classification on the thumbnail (Gemini vision) —
+//      a Claude call on it.
+//   3. Talking-head format classification on the thumbnail (Claude vision) —
 //      only reels that read as "person on camera, upscale background" move
 //      on. Reels that don't qualify visually are neither inserted nor
 //      transcript-pulled, since the whole point is filtering OUT skits/other

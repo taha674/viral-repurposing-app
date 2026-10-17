@@ -38,13 +38,12 @@ export const config = {
   apifyHashtagActor:
     process.env.APIFY_INSTAGRAM_HASHTAG_ACTOR ?? "apify/instagram-hashtag-scraper",
 
-  // Gemini (adaptation step)
-  geminiKey: process.env.GEMINI_API_KEY ?? "",
-  // gemini-2.5-flash is closed to new API keys (404 "no longer available to
-  // new users"), so the default is the current flash generation. Pinned rather
-  // than gemini-flash-latest: an alias that silently upgrades under a
-  // compliance-sensitive prompt is a liability.
-  geminiModel: process.env.GEMINI_MODEL ?? "gemini-3.5-flash",
+  // Claude API (adaptation, publish pack, hashtag format filter). Replaced
+  // Gemini 2026-10-18. Pinned model id: an alias that silently upgrades under
+  // a compliance-sensitive prompt is a liability.
+  anthropicKey: process.env.ANTHROPIC_API_KEY ?? "",
+  claudeModel: process.env.CLAUDE_MODEL ?? "claude-opus-5-5",
+  claudeEffort: (process.env.CLAUDE_EFFORT ?? "low") as "low" | "medium" | "high",
 
   // ElevenLabs (voiceover step)
   elevenlabsKey: process.env.ELEVENLABS_API_KEY ?? "",
@@ -116,14 +115,16 @@ export const config = {
 
   // Hard caps (never loop silently against a paid API)
   apifyMaxRetries: intEnv("APIFY_MAX_RETRIES", 1),
-  geminiMaxRetries: intEnv("GEMINI_MAX_RETRIES", 1),
-  adaptMaxOutputTokens: intEnv("ADAPT_MAX_OUTPUT_TOKENS", 2000),
+  claudeMaxRetries: intEnv("CLAUDE_MAX_RETRIES", 1),
+  // Counts thinking tokens as well as the visible JSON (thinking can't be
+  // turned off on the current Opus), hence well above the ~1k visible output.
+  adaptMaxOutputTokens: intEnv("ADAPT_MAX_OUTPUT_TOKENS", 8000),
   // Separate cap from the adaptation call, deliberately: the publish pack is
-  // a second, independent Gemini call with its own prompt and schema, and
+  // a second, independent Claude call with its own prompt and schema, and
   // sharing a budget would mean tuning one to fit the other. Hitting the cap
-  // throws (MAX_TOKENS is fail-loud in gemini.ts) rather than writing a
+  // throws (max_tokens is fail-loud in claude.ts) rather than writing a
   // half-built pack.
-  publishPackMaxOutputTokens: intEnv("PUBLISH_PACK_MAX_OUTPUT_TOKENS", 1800),
+  publishPackMaxOutputTokens: intEnv("PUBLISH_PACK_MAX_OUTPUT_TOKENS", 8000),
   elevenlabsMaxRetries: intEnv("ELEVENLABS_MAX_RETRIES", 1),
   // Budget guard: block generation instead of spending credits on an
   // oversized script. ~90s of narration has real headroom under this.
@@ -239,8 +240,8 @@ export function hasApify(): boolean {
   return config.apifyToken.trim().length > 0;
 }
 
-export function hasGemini(): boolean {
-  return config.geminiKey.trim().length > 0;
+export function hasClaude(): boolean {
+  return config.anthropicKey.trim().length > 0;
 }
 
 export function hasElevenLabs(): boolean {

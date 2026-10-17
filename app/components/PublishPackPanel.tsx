@@ -124,7 +124,7 @@ export default function PublishPackPanel({
 
       {!pack && reel.publish_pack_status !== "failed" && reel.adapted_script?.trim() && (
         <p className="muted">
-          No pack yet. Generating uses one Gemini call and always reads the
+          No pack yet. Generating uses one Claude call and always reads the
           current adapted script, so regenerate after editing it.
         </p>
       )}

@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { StageProps } from "../stageTypes";
 
 // Column 2 (Script). The transcript is still editable here (last chance
-// before it feeds the paid Gemini adaptation call) — Run adaptation is the
+// before it feeds the paid Claude adaptation call) — Run adaptation is the
 // explicit, human-triggered step that advances the card into Adaptation.
 export default function ScriptStage({
   reel,

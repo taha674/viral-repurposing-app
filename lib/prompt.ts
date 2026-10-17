@@ -258,7 +258,7 @@ export function getDefaultSystemPrompt(brand: Brand): string {
   return DEFAULT_PROMPTS[brand]();
 }
 
-// What actually gets sent to Gemini: the operator's saved override if present
+// What actually gets sent to Claude: the operator's saved override if present
 // and non-empty, otherwise the code default.
 export async function getEffectiveSystemPrompt(brand: Brand): Promise<string> {
   const override = await getSetting(brandKey(SYSTEM_PROMPT_SETTING_KEY, brand));
@@ -284,12 +284,10 @@ export async function resetSystemPrompt(brand: Brand): Promise<void> {
   await deleteSetting(brandKey(SYSTEM_PROMPT_SETTING_KEY, brand));
 }
 
-// JSON schema for Gemini structured output (config.responseJsonSchema, paired
-// with responseMimeType: "application/json"). Gemini supports a subset of JSON
-// Schema — the keywords used here (type, properties, required, items, enum,
-// description, additionalProperties) are all in it. `propertyOrdering` is
-// Gemini's non-standard hint that keeps field order stable across calls, which
-// matters because the model generates the JSON token by token.
+// JSON schema for Claude structured output (output_config.format). Every
+// object needs additionalProperties: false. Property order is the generation
+// order: analysis first, so the model reasons about the source before it
+// emits the edit.
 export const ADAPTATION_SCHEMA = {
   type: "object" as const,
   additionalProperties: false,
@@ -310,14 +308,6 @@ export const ADAPTATION_SCHEMA = {
         },
       },
       required: [
-        "hook",
-        "reframe",
-        "mechanism",
-        "philosophical_close",
-        "cta",
-        "top_psychological_triggers",
-      ],
-      propertyOrdering: [
         "hook",
         "reframe",
         "mechanism",
@@ -354,17 +344,9 @@ export const ADAPTATION_SCHEMA = {
     "red_line_reason",
     "edits_made",
   ],
-  // analysis first: the model reasons about the source before emitting the edit.
-  propertyOrdering: [
-    "analysis",
-    "adapted_script",
-    "red_line_flag",
-    "red_line_reason",
-    "edits_made",
-  ],
 } as const;
 
-// Gemini reads schema descriptions as instructions, and Cyrus's
+// The model reads schema descriptions as instructions, and Cyrus's
 // adapted_script description carries Cyrus-only rules (the "wealthy
 // families" swap, the comment-to-DM CTA). Other brands get the same schema
 // — identical field names — with that description made neutral. Cyrus keeps

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { currentBrand } from "../BrandSwitcher";
 
-// Two independently-overridable Gemini system prompts. They're edited in one
+// Two independently-overridable Claude system prompts. They're edited in one
 // place but stored under separate settings keys, so customizing the
 // adaptation prompt never silently changes what the publish pack is told —
 // which matters, because a saved override is sent verbatim and would not
@@ -356,7 +356,7 @@ export default function SettingsPage() {
     <div className="narrow">
       <h1>Settings</h1>
       <p className="muted">
-        Edit the system prompts driving the Gemini calls. Changes apply to the
+        Edit the system prompts driving the Claude calls. Changes apply to the
         next call of that kind — nothing is re-run automatically.
       </p>
 

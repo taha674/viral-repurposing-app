@@ -375,7 +375,7 @@ export function registerTools(server: McpServer): void {
     "adapt_reel",
     {
       description:
-        "Run the red-line-compliance adaptation (minimal edits, no voice rewrite) on the reel's transcript. PAID (Gemini) — one call, one generation; don't loop, report failures. Sets red_line_flag (none / needs_review / rejected) — read the flag and reason before approving.",
+        "Run the red-line-compliance adaptation (minimal edits, no voice rewrite) on the reel's transcript. PAID (Claude API) — one call, one generation; don't loop, report failures. Sets red_line_flag (none / needs_review / rejected) — read the flag and reason before approving.",
       inputSchema: { id: reelId },
     },
     safe(async ({ id }) =>
@@ -586,7 +586,7 @@ export function registerTools(server: McpServer): void {
     "generate_publish_pack",
     {
       description:
-        "Generate SUGGESTED Instagram caption, hashtags and cover-text hook from the current adapted script. PAID (Gemini). Suggestions only — nothing is ever posted, and choosing/editing the final caption, tags and the AI-content toggle stay with the operator. Re-run after editing the script.",
+        "Generate SUGGESTED Instagram caption, hashtags and cover-text hook from the current adapted script. PAID (Claude API). Suggestions only — nothing is ever posted, and choosing/editing the final caption, tags and the AI-content toggle stay with the operator. Re-run after editing the script.",
       inputSchema: { id: reelId },
     },
     safe(async ({ id }) =>
