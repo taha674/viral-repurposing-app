@@ -552,6 +552,62 @@ export function registerTools(server: McpServer): void {
     )
   );
 
+  // ---- Operator digest (ticket 14) ----
+  server.registerTool(
+    "get_operator_queue",
+    {
+      description:
+        "Everything waiting on the operator, split by brand, for the daily 07:30 digest: scripts awaiting approval (with red-line flag and reason), stories and text posts pending approval, today's ready posts of every kind (full payload), engagement drafts awaiting approval (numbered by id) and approved ones awaiting sending, and failed steps. Read-only. Add the Hifdh ticket tasks yourself.",
+      inputSchema: {
+        timezone: z.string().optional().describe("IANA zone that defines 'today'; default Asia/Kolkata"),
+      },
+    },
+    safe(async ({ timezone }) => {
+      const tz = timezone ?? "Asia/Kolkata";
+      // Today's bounds in that zone, as UTC instants.
+      const day = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+      const offsetOf = (d: Date) => {
+        const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" }).formatToParts(d);
+        const off = parts.find((p) => p.type === "timeZoneName")?.value.replace("GMT", "") || "+00:00";
+        return off === "" ? "+00:00" : off;
+      };
+      const start = new Date(`${day}T00:00:00${offsetOf(new Date())}`);
+      const end = new Date(start.getTime() + 864e5);
+
+      const reels = await listReelSummaries();
+      const scheduled = await listScheduled(start, end);
+      const engagement = await listEngagement({});
+      const brief = (r: (typeof reels)[number]) => ({ id: r.id, kind: r.kind, slug: r.slug, hook: r.hook, status: r.status });
+      const out: Record<string, unknown> = {};
+      for (const { id: brand } of BRANDS) {
+        const mine = reels.filter((r) => r.brand === brand);
+        out[brand] = {
+          scripts_awaiting_approval: mine
+            .filter((r) => r.status === "adapted")
+            .map((r) => ({ ...brief(r), red_line_flag: r.red_line_flag, red_line_reason: r.red_line_reason, script_excerpt: excerpt(r.adapted_script) })),
+          items_pending_approval: mine.filter((r) => r.status === "pending_approval").map(brief),
+          ready_posts_today: scheduled.filter((r) => r.brand === brand).map(readyPost),
+          engagement_awaiting_approval: engagement
+            .filter((e) => e.brand === brand && e.status === "draft")
+            .map((e) => ({ number: e.id, kind: e.kind, platform: e.platform, target_url: e.target_url, context: e.context, draft: e.draft })),
+          engagement_awaiting_send: engagement
+            .filter((e) => e.brand === brand && e.status === "approved")
+            .map((e) => ({ number: e.id, platform: e.platform, target_url: e.target_url, text: e.approved_text })),
+          failed_steps: mine
+            .filter((r) => r.status !== "rejected" && r.status !== "archived")
+            .flatMap((r) => [
+              r.transcript_status === "failed" && r.source !== "original" ? { ...brief(r), step: "transcript" } : null,
+              r.voiceover_status === "failed" ? { ...brief(r), step: "voiceover", error: r.voiceover_error } : null,
+              r.captions_status === "failed" ? { ...brief(r), step: "captions", error: r.captions_error } : null,
+              r.publish_pack_status === "failed" ? { ...brief(r), step: "publish_pack", error: r.publish_pack_error } : null,
+            ])
+            .filter(Boolean),
+        };
+      }
+      return { day, timezone: tz, brands: out };
+    })
+  );
+
   // ---- Metrics (reading insights is not posting) ----
   server.registerTool(
     "record_metrics",
