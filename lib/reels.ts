@@ -348,7 +348,7 @@ export async function clearMediaPaths(id: number): Promise<void> {
            voiceover_error = NULL, voiceover_alignment = NULL,
            source_video_path = NULL,
            captions_status = 'none', captions_video_path = NULL,
-           captions_error = NULL
+           captions_error = NULL, slide_paths = NULL
      WHERE id = $1`,
     [id]
   );

@@ -47,7 +47,8 @@ export async function listMetrics(reelId: number) {
 // of each item's latest views and 3-second rate, and total saves and
 // comments. Plus month-to-date paid spend: treg dollars from the
 // provider_spend ledger, and agent paid calls (Claude, ElevenLabs) by count,
-// since those are not billed per call in dollars here.
+// since those are not billed per call in dollars here. Spend is for the
+// whole app, not per brand: the ledger has no brand column.
 export async function hookSummary(brand?: Brand) {
   const pool = await getPool();
   const { rows } = await pool.query(
@@ -74,7 +75,7 @@ export async function hookSummary(brand?: Brand) {
   const spend = await pool.query(
     `SELECT
        (SELECT COALESCE(SUM(cost_micro), 0) FROM provider_spend WHERE at >= date_trunc('month', now()))::bigint AS treg_micro,
-       (SELECT count(*) FROM agent_actions WHERE at >= date_trunc('month', now())
+       (SELECT count(*) FROM agent_actions WHERE at >= date_trunc('month', now()) AND ok
           AND tool IN ('adapt_reel', 'generate_voiceover', 'generate_publish_pack', 'retry_transcript', 'add_reel'))::int AS paid_calls`
   );
   return {

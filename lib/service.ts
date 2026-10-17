@@ -129,7 +129,10 @@ export async function restoreReel(reelId: number): Promise<Reel> {
     // script is DB text and survives the purge, so the meaningful restore
     // target is the Audio column: the operator re-generates the voiceover
     // (an explicit, manually triggered paid call) and redoes the video.
-    await advanceStatus(reelId, "approved");
+    // Files are gone, so each kind restarts at the step that remakes them.
+    const target =
+      reel.kind === "story" || reel.kind === "text" ? "pending_approval" : reel.kind === "carousel" ? "slides" : "approved";
+    await advanceStatus(reelId, target);
   } else {
     throw new Error("Reel is not in the Rejected or Done tray.");
   }
@@ -299,6 +302,11 @@ export async function adaptReel(reelId: number): Promise<Reel> {
     );
   }
 
+  // Stories and text posts are approved as written (approve_item); adapting
+  // one would route it into the reel pipeline around that gate.
+  if (reel.kind !== "reel" && reel.kind !== "carousel") {
+    throw new Error(`A ${reel.kind} is not adapted; it goes through approve_item.`);
+  }
   if (reel.kind === "carousel") return adaptCarousel(reel);
 
   const result = await runAdaptation(reel.transcript, reel.brand);
@@ -470,6 +478,9 @@ export async function generatePublishPack(reelId: number): Promise<Reel> {
 export async function generateVoiceover(reelId: number): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.kind !== "reel" || reel.voiceless) {
+    throw new Error(`Item ${reelId} takes no voiceover (${reel.voiceless ? "voiceless" : reel.kind}).`);
+  }
   if (reel.status !== "approved") {
     throw new Error("Approve the script before generating a voiceover.");
   }
@@ -551,6 +562,7 @@ export async function saveSourceVideo(
 export async function burnCaptions(reelId: number): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.kind !== "reel") throw new Error(`A ${reel.kind} is not burned.`);
   if (reel.status !== "video") {
     throw new Error("Upload the finished video before burning captions.");
   }
@@ -786,6 +798,7 @@ export async function addCarousel(input: {
 }): Promise<Reel> {
   let script = input.script?.trim() ?? "";
   let hook = input.hook;
+  let brand = input.brand;
   if (input.fromReelId) {
     const src = await getReel(input.fromReelId);
     if (!src) throw new Error(`Reel ${input.fromReelId} not found`);
@@ -795,10 +808,11 @@ export async function addCarousel(input: {
     }
     script = src.adapted_script.trim();
     hook ??= src.hook;
+    brand = src.brand; // the source's brand, whatever the caller passed
   }
   if (!script) throw new Error("Give from_reel_id (an approved reel) or a script.");
   const reel = await insertReel({
-    brand: input.brand,
+    brand,
     url: "",
     source: "original",
     kind: "carousel",

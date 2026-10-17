@@ -779,7 +779,16 @@ export function registerTools(server: McpServer): void {
       if (transcript === undefined && adapted_script === undefined && publish_pack === undefined) {
         throw new Error("Provide at least one of transcript, adapted_script, publish_pack.");
       }
-      await mustGet(id);
+      const target = await mustGet(id);
+      // What the operator approved stays as approved: a story's or text
+      // post's text only changes while it is still pending approval, and a
+      // carousel's slides are rewritten by adapt_reel, not by hand here.
+      if ((target.kind === "story" || target.kind === "text") && target.status !== "pending_approval") {
+        throw new Error(`Item ${id} is approved; send it back to Pending approval (move_back) before editing its text.`);
+      }
+      if (target.kind === "carousel" && adapted_script !== undefined) {
+        throw new Error("A carousel's slides change through adapt_reel, so the approved text and the rendered slides stay the same.");
+      }
       await withAudit("edit_reel", "write", { reelId: id, args: { id, fields: Object.keys({ transcript, adapted_script, publish_pack }).filter((k) => ({ transcript, adapted_script, publish_pack } as Record<string, unknown>)[k] !== undefined) }, rationale }, () =>
         updateEditable(id, { transcript, adapted_script, publish_pack: publish_pack as unknown as PublishPack | undefined })
       );
@@ -824,6 +833,9 @@ export function registerTools(server: McpServer): void {
         { reelId: id, args: { id, operator_confirmed: Boolean(operator_confirmed), confirmation_note }, rationale },
         async () => {
           const reel = await mustGet(id);
+          if (reel.kind !== "reel" && reel.kind !== "carousel") {
+            throw new Error(`A ${reel.kind} is approved with approve_item.`);
+          }
           if (reel.status !== "adapted") {
             throw new Error(`Reel ${id} is in "${reel.status}", not "adapted" — nothing to approve.`);
           }
@@ -1037,6 +1049,7 @@ export function registerTools(server: McpServer): void {
     },
     safe(async ({ id }) => {
       const reel = await mustGet(id);
+      if (reel.kind !== "reel") throw new Error(`A ${reel.kind} has no Video stage.`);
       if (reel.status !== "approved") throw new Error(`Reel ${id} is in "${reel.status}", not "approved".`);
       if (!reel.voiceless && reel.voiceover_status !== "success") throw new Error("Generate the voiceover first.");
       await withAudit("send_to_video", "write", { reelId: id, args: { id } }, () => advanceStatus(id, "video"));

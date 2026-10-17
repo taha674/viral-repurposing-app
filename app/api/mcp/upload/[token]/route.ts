@@ -22,6 +22,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     if (target?.kind === "carousel") {
       // Slides arrive as repeated "slides" fields; their order is kept.
       const files = form.getAll("slides").filter((f): f is File => f instanceof File);
+      const total = files.reduce((n, f) => n + f.size, 0);
+      if (files.some((f) => f.size > 20 * 1024 * 1024) || total > config.captionsMaxVideoMb * 1024 * 1024) {
+        return NextResponse.json({ error: `Slides must be under 20MB each and ${config.captionsMaxVideoMb}MB in total.` }, { status: 400 });
+      }
       const reel = await withAudit("upload_slides_via_link", "write", { reelId: verified.reelId, args: { count: files.length } }, async () =>
         saveSlides(verified.reelId, await Promise.all(files.map(async (f) => ({ name: f.name, buffer: Buffer.from(await f.arrayBuffer()) }))))
       );

@@ -84,7 +84,7 @@ export async function extractAudioForTranscription(
 
 // Metadata strip with no re-encode, for a voiceless original's upload: there
 // is no word timing to burn, but the project rule still holds (every video
-// the pipeline produces is stripped before it's "done"). Streams are copied;
+// the pipeline produces is stripped before it's "done"). Video and audio are copied;
 // global, per-stream and chapter metadata are dropped, and bitexact keeps the
 // muxer from writing its own encoder tag.
 export async function stripMetadata(videoPath: string, outPath: string): Promise<void> {
@@ -94,8 +94,14 @@ export async function stripMetadata(videoPath: string, outPath: string): Promise
       "-y",
       "-i",
       videoPath,
+      // Video and audio only: data tracks (e.g. an iPhone's timed-metadata
+      // track, which can carry location) and subtitles are dropped.
       "-map",
-      "0",
+      "0:v",
+      "-map",
+      "0:a?",
+      "-dn",
+      "-sn",
       "-map_metadata",
       "-1",
       "-map_chapters",

@@ -83,6 +83,7 @@ export async function draftEngagement(input: {
   draft: string;
   rationale: string;
 }): Promise<Engagement> {
+  // ponytail: count-then-insert, no lock; two concurrent drafts could both pass. One agent drafts at a time today.
   const pool = await getPool();
   const cap = capFor(input.platform);
   const { rows } = await pool.query<{ n: number }>(
