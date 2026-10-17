@@ -19,6 +19,7 @@
 import { getSetting, setSetting, deleteSetting } from "./settings";
 import { brandKey } from "./brands";
 import type { Brand } from "./types";
+import { NURONOMICS_PUBLISH_PROMPT } from "./nuronomicsPrompts";
 // One red-line list, never a second copy — this is the same list the
 // adaptation step edits against.
 import { RED_LINES } from "./prompt";
@@ -174,11 +175,18 @@ Return ONLY a JSON object matching the required schema — no prose, no markdown
 fences, no commentary before or after.`;
 }
 
+// Whose video the script is for, as named in the user message. Cyrus's
+// wording is the original string, unchanged.
+const VIDEO_OWNER: Record<Brand, string> = {
+  cyrus: "Cyrus's",
+  nuronomics: "Nuronomics's",
+};
+
 export function buildPublishUserMessage(input: PublishPackInput): string {
   const parts: string[] = [];
 
   parts.push(
-    `Here is the finished, red-line-compliant script for Cyrus's video:\n\n"""\n${input.adaptedScript.trim()}\n"""`
+    `Here is the finished, red-line-compliant script for ${VIDEO_OWNER[input.brand]} video:\n\n"""\n${input.adaptedScript.trim()}\n"""`
   );
 
   if (input.analysis) {
@@ -233,17 +241,20 @@ export function buildPublishUserMessage(input: PublishPackInput): string {
 // Separate settings key from the adaptation prompt, so customizing one never
 // affects the other.
 
-// Only Cyrus has a code default; other brands run on the prompt saved in
-// Settings (empty string here = "none yet").
+// Per-brand code default, same shape as prompt.ts. Cyrus's is built from
+// Cyrus's RED_LINES; Nuronomics's is verbatim and carries its own list.
+const DEFAULT_PUBLISH_PROMPTS: Record<Brand, () => string> = {
+  cyrus: buildPublishSystemPrompt,
+  nuronomics: () => NURONOMICS_PUBLISH_PROMPT,
+};
+
 export function getDefaultPublishSystemPrompt(brand: Brand): string {
-  return brand === "cyrus" ? buildPublishSystemPrompt() : "";
+  return DEFAULT_PUBLISH_PROMPTS[brand]();
 }
 
 export async function getEffectivePublishSystemPrompt(brand: Brand): Promise<string> {
   const override = await getSetting(brandKey(PUBLISH_PROMPT_SETTING_KEY, brand));
-  const prompt = override?.trim() ? override : getDefaultPublishSystemPrompt(brand);
-  if (!prompt) throw new Error(`No ${brand} prompt yet — save one in Settings first.`);
-  return prompt;
+  return override?.trim() ? override : getDefaultPublishSystemPrompt(brand);
 }
 
 export async function isPublishSystemPromptCustomized(brand: Brand): Promise<boolean> {

@@ -4,7 +4,7 @@ import type { Brand } from "./types";
 import {
   getEffectiveSystemPrompt,
   buildUserMessage,
-  ADAPTATION_SCHEMA,
+  adaptationSchema,
   type AdaptationResult,
 } from "./prompt";
 import {
@@ -119,7 +119,7 @@ export async function runAdaptation(
           maxOutputTokens: config.adaptMaxOutputTokens,
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: "application/json",
-          responseJsonSchema: ADAPTATION_SCHEMA,
+          responseJsonSchema: adaptationSchema(brand),
         },
       });
       return extractResult(response);

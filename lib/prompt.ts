@@ -11,6 +11,7 @@
 import { getSetting, setSetting, deleteSetting } from "./settings";
 import { brandKey } from "./brands";
 import type { Brand } from "./types";
+import { NURONOMICS_ADAPTATION_PROMPT } from "./nuronomicsPrompts";
 
 const SYSTEM_PROMPT_SETTING_KEY = "adaptation_system_prompt";
 
@@ -245,19 +246,23 @@ export function buildUserMessage(transcript: string): string {
 
 // The as-shipped prompt, ignoring any operator override. Used as the "Reset
 // to default" target and to show the operator what the baseline looks like.
-// Only Cyrus has a code default; other brands run on the prompt saved in
-// Settings (empty string here = "none yet").
+// Per-brand code default. Cyrus's is built from RED_LINES + PRODUCT_CONTEXT;
+// Nuronomics's is a verbatim pasted prompt with its own red lines, so
+// neither list ever reaches the other brand's calls.
+const DEFAULT_PROMPTS: Record<Brand, () => string> = {
+  cyrus: buildSystemPrompt,
+  nuronomics: () => NURONOMICS_ADAPTATION_PROMPT,
+};
+
 export function getDefaultSystemPrompt(brand: Brand): string {
-  return brand === "cyrus" ? buildSystemPrompt() : "";
+  return DEFAULT_PROMPTS[brand]();
 }
 
 // What actually gets sent to Gemini: the operator's saved override if present
 // and non-empty, otherwise the code default.
 export async function getEffectiveSystemPrompt(brand: Brand): Promise<string> {
   const override = await getSetting(brandKey(SYSTEM_PROMPT_SETTING_KEY, brand));
-  const prompt = override?.trim() ? override : getDefaultSystemPrompt(brand);
-  if (!prompt) throw new Error(`No ${brand} prompt yet — save one in Settings first.`);
-  return prompt;
+  return override?.trim() ? override : getDefaultSystemPrompt(brand);
 }
 
 export async function isSystemPromptCustomized(brand: Brand): Promise<boolean> {
@@ -358,3 +363,22 @@ export const ADAPTATION_SCHEMA = {
     "edits_made",
   ],
 } as const;
+
+// Gemini reads schema descriptions as instructions, and Cyrus's
+// adapted_script description carries Cyrus-only rules (the "wealthy
+// families" swap, the comment-to-DM CTA). Other brands get the same schema
+// — identical field names — with that description made neutral. Cyrus keeps
+// ADAPTATION_SCHEMA exactly as it was.
+export function adaptationSchema(brand: Brand) {
+  if (brand === "cyrus") return ADAPTATION_SCHEMA;
+  return {
+    ...ADAPTATION_SCHEMA,
+    properties: {
+      ...ADAPTATION_SCHEMA.properties,
+      adapted_script: {
+        type: "string",
+        description: "The adapted script, as described in the system prompt.",
+      },
+    },
+  };
+}
