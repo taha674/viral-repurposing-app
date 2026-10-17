@@ -111,6 +111,7 @@ export type ReelStatus =
   | "adapted" // adaptation has run, awaiting approval
   | "approved" // script approved, voiceover stage
   | "video" // HeyGen video uploaded, awaiting subtitle burn
+  | "slides" // carousel: script approved, waiting for the rendered slide images
   | "pending_approval" // story / text post waiting for approve_item
   | "captioned" // finished: subtitles burned + metadata stripped (reel), or an approved story / text post
   | "scheduled" // operator picked a post time (planned_post_at)
@@ -212,6 +213,9 @@ export interface Reel {
   // straight to Video and the upload is stripped, not burned.
   voiceless: boolean;
   kind: ItemKind;
+  // Carousels only: the adapted slides, and the uploaded, stripped PNGs in order.
+  slides: { headline: string; body: string }[] | null;
+  slide_paths: string[] | null;
   // Text posts only: where it goes out. The body is adapted_script.
   text_channel: TextChannel | null;
   // Launch content OS (2026-10-18). The app never posts: these record what

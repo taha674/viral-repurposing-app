@@ -163,6 +163,22 @@ export default function StageModal({
           {stage === "adaptation" && <AdaptationStage {...stageProps} />}
           {stage === "audio" && <AudioStage {...stageProps} />}
           {stage === "video" && <VideoStage {...stageProps} />}
+          {stage === "slides" && (
+            <>
+              <h2>Slides</h2>
+              <ol>
+                {(reel.slides ?? []).map((s, i) => (
+                  <li key={i}>
+                    <strong>{s.headline}</strong> {s.body}
+                  </li>
+                ))}
+              </ol>
+              <p className="muted">
+                Render these as 1080×1350 images and upload them in order through MCP
+                <code> create_slides_upload_link</code>.
+              </p>
+            </>
+          )}
           {(stage === "pending" || stage === "subtitled" || stage === "scheduled" || stage === "posted") && (
             <SubtitledStage {...stageProps} />
           )}

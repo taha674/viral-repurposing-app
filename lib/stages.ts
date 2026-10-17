@@ -10,6 +10,7 @@ export type Stage =
   | "adaptation"
   | "audio"
   | "video"
+  | "slides"
   | "pending"
   | "subtitled"
   | "scheduled"
@@ -47,6 +48,12 @@ export const STAGES: { id: Stage; title: string; blurb: string; statuses: ReelSt
     title: "Video",
     blurb: "Upload the finished HeyGen video, then burn subtitles.",
     statuses: ["video"],
+  },
+  {
+    id: "slides",
+    title: "Slides",
+    blurb: "Carousels: approved slides waiting for their rendered images.",
+    statuses: ["slides"],
   },
   {
     id: "pending",
@@ -112,7 +119,11 @@ export function backTargetStatus(
     if (stage === "pending") return null;
     if (stage === "subtitled") return "pending_approval";
   }
-  if (stage === "pending") return null;
+  if (reel.kind === "carousel") {
+    if (stage === "slides") return "adapted";
+    if (stage === "subtitled") return "slides";
+  }
+  if (stage === "pending" || stage === "slides") return null;
   if (stage === "subtitled") return "video";
   const prev = previousStage(stage);
   if (!prev) return null;

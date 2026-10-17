@@ -58,7 +58,7 @@ const SUMMARY_COLUMNS = `
   voiceover_status, voiceover_path, voiceover_error,
   captions_status, captions_video_path, captions_error,
   source_hashtags, publish_pack_status, publish_pack_error,
-  source_video_path, slug, status, previous_status, thumbnail_url, hook, voiceless, kind, text_channel,
+  source_video_path, slug, status, previous_status, thumbnail_url, hook, voiceless, kind, text_channel, slide_paths,
   planned_post_at, ${POST_LINKS_JSON},
   created_at, updated_at,
   (transcript IS NOT NULL) AS has_transcript,
@@ -415,9 +415,12 @@ export async function setStatus(id: number, status: ReelStatus): Promise<void> {
       [status, id]
     );
   } else {
+    // An approved carousel goes to Slides (waiting for its images), not to
+    // Audio: every approval path (web, MCP, bot) passes through here.
     await pool.query(
       `UPDATE reels
-         SET status = $1, red_line_flag = 'none', red_line_reason = NULL
+         SET status = CASE WHEN $1 = 'approved' AND kind = 'carousel' THEN 'slides' ELSE $1 END,
+             red_line_flag = 'none', red_line_reason = NULL
        WHERE id = $2`,
       [status, id]
     );
@@ -463,6 +466,20 @@ export async function listScheduled(from: Date, to: Date, brand?: Brand): Promis
     [from.toISOString(), to.toISOString(), brand ?? null]
   );
   return rows;
+}
+
+export async function setSlides(id: number, slides: { headline: string; body: string }[]): Promise<void> {
+  const pool = await getPool();
+  await pool.query("UPDATE reels SET slides = $1 WHERE id = $2", [JSON.stringify(slides), id]);
+}
+
+export async function setSlidePaths(id: number, paths: string[]): Promise<void> {
+  const pool = await getPool();
+  await pool.query(
+    "UPDATE reels SET slide_paths = $1, captions_status = 'success', captions_video_path = $2, status = 'captioned' WHERE id = $3",
+    [JSON.stringify(paths), paths[0], id]
+  );
+  await touch(id);
 }
 
 export async function setSchedule(id: number, plannedAt: Date): Promise<void> {

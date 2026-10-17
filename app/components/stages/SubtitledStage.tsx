@@ -104,9 +104,16 @@ export default function SubtitledStage(props: StageProps) {
 
   return (
     <>
-      <h2>{reel.kind === "story" ? "Story" : "Finished video"}</h2>
+      <h2>{reel.kind === "story" ? "Story" : reel.kind === "carousel" ? "Carousel slides" : "Finished video"}</h2>
       {reel.kind === "story" && <p className="muted">{reel.transcript}</p>}
-      {reel.captions_status !== "success" ? (
+      {reel.kind === "carousel" ? (
+        <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
+          {(reel.slide_paths ?? []).map((_, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={i} src={`/api/reels/${reel.id}/slides/${i}?v=${encodeURIComponent(reel.updated_at)}`} alt={`Slide ${i + 1}`} style={{ height: 240, borderRadius: 6 }} />
+          ))}
+        </div>
+      ) : reel.captions_status !== "success" ? (
         <p className="muted">No file uploaded yet.</p>
       ) : isImage ? (
         // eslint-disable-next-line @next/next/no-img-element

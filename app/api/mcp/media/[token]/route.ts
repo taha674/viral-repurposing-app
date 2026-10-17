@@ -16,6 +16,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const reel = await getReel(verified.reelId);
   if (!reel) return NextResponse.json({ error: "Reel not found." }, { status: 404 });
 
+  if (verified.kind.startsWith("slide")) {
+    const file = reel.slide_paths?.[Number(verified.kind.slice(5))];
+    if (!file) return NextResponse.json({ error: "No such slide." }, { status: 404 });
+    return streamFile(request, file, mimeOf(file), "inline", `reel-${reel.id}-${verified.kind}.png`);
+  }
   if (verified.kind === "video") {
     if (reel.captions_status !== "success" || !reel.captions_video_path) {
       return NextResponse.json({ error: "No finished video for this reel yet." }, { status: 404 });

@@ -6,7 +6,8 @@ import { config } from "../config";
 // upload tokens), so the MCP needs only that secret plus PUBLIC_BASE_URL —
 // nothing from the Instagram bot's config.
 const TTL_MS = 10 * 60 * 1000;
-export type McpMediaKind = "audio" | "video";
+// "slideN" is a carousel's Nth slide (0-based).
+export type McpMediaKind = "audio" | "video" | `slide${number}`;
 
 function mac(payload: string): string {
   return crypto.createHmac("sha256", config.mcpApiToken).update(`media:${payload}`).digest("hex");
@@ -33,8 +34,8 @@ export function verifyMcpMediaToken(token: string): { reelId: number; kind: McpM
   const [reelIdStr, kind, expStr] = payload.split(".");
   const reelId = Number(reelIdStr);
   if (!Number.isInteger(reelId) || !Number.isFinite(Number(expStr)) || Date.now() > Number(expStr)) return null;
-  if (kind !== "audio" && kind !== "video") return null;
-  return { reelId, kind };
+  if (kind !== "audio" && kind !== "video" && !/^slide\d+$/.test(kind)) return null;
+  return { reelId, kind: kind as McpMediaKind };
 }
 
 export function mcpMediaUrl(reelId: number, kind: McpMediaKind): string {

@@ -49,6 +49,15 @@ export async function probeVideo(videoPath: string): Promise<VideoProbe> {
   return { durationSeconds: duration, width: stream.width, height: stream.height };
 }
 
+// Width and height of an image (or a video's first stream), no duration needed.
+export async function probeSize(filePath: string): Promise<{ width: number; height: number }> {
+  const { stdout } = await execFileAsync(FFPROBE, [
+    "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", filePath,
+  ]);
+  const s = (JSON.parse(stdout) as { streams?: { width?: number; height?: number }[] }).streams?.[0];
+  return { width: s?.width ?? 0, height: s?.height ?? 0 };
+}
+
 // Extracted as 16kHz mono WAV — the input format the local Whisper model expects.
 export async function extractAudioForTranscription(
   videoPath: string,

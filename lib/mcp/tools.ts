@@ -16,6 +16,7 @@ import {
   addManualReel,
   addOriginal,
   addStory,
+  addCarousel,
   addTextPost,
   approveItem,
   scheduleItem,
@@ -134,6 +135,9 @@ function allowedActions(reel: Reel): string[] {
     case "posted":
       a.push("get_media_links", "mark_posted", "move_back", "archive_reel");
       break;
+    case "slides":
+      a.push("create_slides_upload_link", "edit_reel", "reject_reel", "move_back");
+      break;
     case "pending_approval":
       a.push("approve_item", "edit_reel", "reject_reel");
       if (reel.kind === "story") a.push("create_video_upload_link");
@@ -179,7 +183,9 @@ function readyPost(reel: Reel) {
     slug: reel.slug,
     planned_post_at: reel.planned_post_at,
     files: {
-      video_url: reel.captions_status === "success" && reel.captions_video_path ? mcpMediaUrl(reel.id, "video") : null,
+      video_url:
+        reel.kind !== "carousel" && reel.captions_status === "success" && reel.captions_video_path ? mcpMediaUrl(reel.id, "video") : null,
+      ...(reel.kind === "carousel" ? { slide_urls: (reel.slide_paths ?? []).map((_, i) => mcpMediaUrl(reel.id, `slide${i}`)) } : {}),
       expires_in_minutes: 10,
     },
     caption: pack?.caption ?? null,
@@ -300,7 +306,9 @@ export function registerTools(server: McpServer): void {
       const reel = await mustGet(id);
       return {
         audio_url: reel.voiceover_status === "success" && reel.voiceover_path ? mcpMediaUrl(id, "audio") : null,
-        video_url: reel.captions_status === "success" && reel.captions_video_path ? mcpMediaUrl(id, "video") : null,
+        video_url:
+          reel.kind !== "carousel" && reel.captions_status === "success" && reel.captions_video_path ? mcpMediaUrl(id, "video") : null,
+        slide_urls: (reel.slide_paths ?? []).map((_, i) => mcpMediaUrl(id, `slide${i}`)),
         expires_in_minutes: 10,
       };
     })
@@ -437,6 +445,42 @@ export function registerTools(server: McpServer): void {
         )
       )
     )
+  );
+
+  server.registerTool(
+    "add_carousel",
+    {
+      description:
+        "Add a carousel: derived from an APPROVED reel's script (from_reel_id; takes its hook) or from an original script. It enters at Script; adapt_reel then writes the slides (PAID) under the red-line flag, approve_script approves them with the same rails, and it moves to Slides for the rendered images (create_slides_upload_link).",
+      inputSchema: {
+        from_reel_id: z.number().int().positive().optional(),
+        script: z.string().optional(),
+        brand: brandArg,
+        hook: hookArg.optional(),
+        rationale: z.string().min(1),
+      },
+    },
+    safe(async ({ from_reel_id, script, brand, hook, rationale }) =>
+      presentReel(
+        await withAudit("add_carousel", "write", { args: { from_reel_id, brand, hook, script_chars: script?.length }, rationale }, () =>
+          addCarousel({ brand: parseBrand(brand), fromReelId: from_reel_id, script, hook: (hook as Hook | undefined) ?? null })
+        )
+      )
+    )
+  );
+
+  server.registerTool(
+    "create_slides_upload_link",
+    {
+      description:
+        "One-off signed URL (15 min) for a carousel's rendered slides, in order: `curl -F slides=@01.png -F slides=@02.png ... <url>`. 2 to 20 PNG/JPG images, each 1080x1350; they are metadata-stripped and the carousel moves to Finished. Carousel must be in the Slides column.",
+      inputSchema: { id: reelId },
+    },
+    safe(async ({ id }) => {
+      const reel = await mustGet(id);
+      if (reel.kind !== "carousel" || reel.status !== "slides") throw new Error(`Item ${id} is not a carousel waiting for slides.`);
+      return { upload_url: uploadUrl(id), method: "POST multipart/form-data, repeated field 'slides' in order", expires_in_minutes: 15 };
+    })
   );
 
   server.registerTool(

@@ -118,6 +118,60 @@ export async function runAdaptation(
   });
 }
 
+// --- Carousel adaptation (ticket 10) ---
+//
+// Same brand system prompt (its red lines), asked for slides instead of a
+// script. The prompt owner may want a dedicated carousel prompt later
+// (open question); until then the instruction below rides in the user turn.
+export interface CarouselSlide {
+  headline: string;
+  body: string;
+}
+export interface CarouselResult {
+  slides: CarouselSlide[];
+  red_line_flag: string;
+  red_line_reason: string;
+  edits_made: string[];
+}
+
+const CAROUSEL_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    slides: {
+      type: "array",
+      description: "5 to 8 slides, in order. The first slide is the hook.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          headline: { type: "string", description: "A few words, the slide's one idea." },
+          body: { type: "string", description: "One or two short sentences. Empty on a headline-only slide." },
+        },
+        required: ["headline", "body"],
+      },
+    },
+    red_line_flag: { type: "string", enum: ["none", "needs_review", "rejected"] },
+    red_line_reason: { type: "string", description: "Why this flag. Empty string if none." },
+    edits_made: { type: "array", items: { type: "string" }, description: "Edits made to keep within the red lines." },
+  },
+  required: ["slides", "red_line_flag", "red_line_reason", "edits_made"],
+};
+
+export async function runCarouselAdaptation(script: string, brand: Brand): Promise<CarouselResult> {
+  if (!script.trim()) throw new Error("Cannot adapt an empty script into slides.");
+  return callStructured<CarouselResult>({
+    system: await getEffectiveSystemPrompt(brand),
+    content:
+      "This time, turn the script below into an Instagram carousel instead of a reel script: 5 to 8 slides, each a short headline and a body of one or two sentences, the first slide the hook and the last the call to action. Keep the same red lines and flag the result the same way you would a script.\n\nSCRIPT:\n" +
+      script,
+    schema: CAROUSEL_SCHEMA,
+    maxTokens: config.adaptMaxOutputTokens,
+    label: "Carousel adaptation",
+    tokenEnvVar: "ADAPT_MAX_OUTPUT_TOKENS",
+  });
+}
+
 // --- Publish pack: caption / hashtags / cover text hook (2026-09-12) ---
 //
 // A SECOND, independent call rather than extra fields on runAdaptation —

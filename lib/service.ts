@@ -11,6 +11,8 @@ import { listHashtags, markHashtagScanned } from "./hashtags";
 import {
   setSchedule,
   setPosted,
+  setSlides,
+  setSlidePaths,
   insertReel,
   getReel,
   findByShortcode,
@@ -39,7 +41,7 @@ import {
   captionBody,
   type ScrapedReel,
 } from "./treg";
-import { runAdaptation, classifyFormat, runPublishPack } from "./claude";
+import { runAdaptation, runCarouselAdaptation, classifyFormat, runPublishPack } from "./claude";
 import type { CoverCandidate } from "./publishPrompt";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
 import {
@@ -48,6 +50,7 @@ import {
   burnSubtitlesAndStripMetadata,
   stripMetadata,
   stripImageMetadata,
+  probeSize,
 } from "./ffmpeg";
 import { transcribeWavForWordTimings } from "./whisper";
 import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } from "./retention";
@@ -295,6 +298,8 @@ export async function adaptReel(reelId: number): Promise<Reel> {
       "Reel has no transcript yet — retrieve or paste one before adapting."
     );
   }
+
+  if (reel.kind === "carousel") return adaptCarousel(reel);
 
   const result = await runAdaptation(reel.transcript, reel.brand);
   const validFlags: RedLineFlag[] = ["none", "needs_review", "rejected"];
@@ -769,6 +774,92 @@ export async function markPosted(
   return (await getReel(reelId))!;
 }
 
+// --- Carousels (ticket 10) ---
+// From an approved reel's script or from an original's own script. The
+// carousel is its own board item: Script -> Adaptation (slides, red-line
+// flag) -> approve_script -> Slides (upload the rendered PNGs) -> Finished.
+export async function addCarousel(input: {
+  brand: Brand;
+  fromReelId?: number;
+  script?: string;
+  hook: Hook | null;
+}): Promise<Reel> {
+  let script = input.script?.trim() ?? "";
+  let hook = input.hook;
+  if (input.fromReelId) {
+    const src = await getReel(input.fromReelId);
+    if (!src) throw new Error(`Reel ${input.fromReelId} not found`);
+    const approvedOnward = ["approved", "video", "captioned", "scheduled", "posted"];
+    if (src.kind !== "reel" || !approvedOnward.includes(src.status) || !src.adapted_script?.trim()) {
+      throw new Error(`Reel ${input.fromReelId} has no approved script to derive a carousel from.`);
+    }
+    script = src.adapted_script.trim();
+    hook ??= src.hook;
+  }
+  if (!script) throw new Error("Give from_reel_id (an approved reel) or a script.");
+  const reel = await insertReel({
+    brand: input.brand,
+    url: "",
+    source: "original",
+    kind: "carousel",
+    transcript: script,
+    transcript_status: "success",
+    hook,
+  });
+  return acceptReel(reel.id);
+}
+
+async function adaptCarousel(reel: Reel): Promise<Reel> {
+  const result = await runCarouselAdaptation(reel.transcript!, reel.brand);
+  const valid: RedLineFlag[] = ["none", "needs_review", "rejected"];
+  let flag: RedLineFlag = valid.includes(result.red_line_flag as RedLineFlag) ? (result.red_line_flag as RedLineFlag) : "needs_review";
+  let reason = result.red_line_reason || null;
+  // Same under-flagging guard as a script: edits with no flag need review.
+  if (flag === "none" && result.edits_made.length > 0) {
+    flag = "needs_review";
+    reason = `Slides made edits but reported no flag. Edits: ${result.edits_made.join("; ")}`;
+  }
+  // The slides as text are the "adapted script" the approval rail and the
+  // publish pack read.
+  const asText = result.slides.map((s, i) => `${i + 1}. ${s.headline}${s.body ? ` — ${s.body}` : ""}`).join("\n");
+  await setAdaptation(reel.id, null as unknown as Parameters<typeof setAdaptation>[1], asText, flag, reason);
+  await setSlides(reel.id, result.slides);
+  return (await getReel(reel.id))!;
+}
+
+// The rendered slides, in upload order: each must be 1080x1350, is
+// metadata-stripped (re-encoded) and saved as slug-slide-01.png, ...
+export async function saveSlides(reelId: number, files: { buffer: Buffer; name: string }[]): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (reel.kind !== "carousel" || reel.status !== "slides") {
+    throw new Error("Only a carousel in the Slides column takes slide images.");
+  }
+  if (files.length < 2 || files.length > 20) throw new Error("Upload 2 to 20 slides.");
+  await tryAutoPurge("saveSlides");
+  const slug = await ensureSlug(reel);
+  const dir = path.join(config.reelsOutputDir, slug);
+  fs.mkdirSync(dir, { recursive: true });
+  const out: string[] = [];
+  for (const [i, f] of files.entries()) {
+    const ext = f.name.split(".").pop()?.toLowerCase();
+    if (!["png", "jpg", "jpeg"].includes(ext ?? "")) throw new Error(`Slide ${i + 1} must be a PNG or JPG.`);
+    const raw = path.join(dir, `${slug}-slide-upload-${i}.${ext}`);
+    const dest = path.join(dir, `${slug}-slide-${String(i + 1).padStart(2, "0")}.png`);
+    fs.writeFileSync(raw, f.buffer);
+    try {
+      const { width, height } = await probeSize(raw).catch(() => ({ width: 0, height: 0 }));
+      if (width !== 1080 || height !== 1350) throw new Error(`Slide ${i + 1} is ${width}x${height}; slides must be 1080x1350.`);
+      await stripImageMetadata(raw, dest);
+    } finally {
+      fs.rmSync(raw, { force: true });
+    }
+    out.push(dest);
+  }
+  await setSlidePaths(reelId, out);
+  return (await getReel(reelId))!;
+}
+
 // --- Stories and text posts (tickets 11, 12) ---
 // Both start in Pending approval and reach Finished only through
 // approveItem: the web app's Approve button (the operator) or MCP
@@ -940,6 +1031,8 @@ export async function addManualReel(
         voiceless: false,
         kind: "reel",
         text_channel: null,
+        slides: null,
+        slide_paths: null,
         planned_post_at: null,
         post_links: [],
         created_at: "",

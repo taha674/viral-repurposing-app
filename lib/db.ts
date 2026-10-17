@@ -223,6 +223,8 @@ async function ensureSchema(pool: Pool): Promise<void> {
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS voiceless BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'reel';
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS text_channel TEXT;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS slides JSONB;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS slide_paths JSONB;
 
     -- treg (2026-10-18): keyword sources share tracked_hashtags, and every
     -- paid treg call's X-Treg-Cost-Micro lands here. TREG_DAILY_SPEND_CAP_USD
