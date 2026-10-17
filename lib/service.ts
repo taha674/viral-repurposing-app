@@ -46,6 +46,7 @@ import {
   probeVideo,
   extractAudioForTranscription,
   burnSubtitlesAndStripMetadata,
+  stripMetadata,
 } from "./ffmpeg";
 import { transcribeWavForWordTimings } from "./whisper";
 import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } from "./retention";
@@ -546,7 +547,7 @@ export async function burnCaptions(reelId: number): Promise<Reel> {
   if (reel.status !== "video") {
     throw new Error("Upload the finished video before burning captions.");
   }
-  if (reel.voiceover_status !== "success") {
+  if (!reel.voiceless && reel.voiceover_status !== "success") {
     throw new Error("Generate the voiceover before burning captions.");
   }
   if (!reel.source_video_path) {
@@ -566,50 +567,56 @@ export async function burnCaptions(reelId: number): Promise<Reel> {
   const outPath = path.join(dir, reelFileName(slug, "subtitled", "mp4"));
 
   try {
-    const probe = await probeVideo(sourcePath);
+    if (reel.voiceless) {
+      // Voiceless original (app demo, on-screen text only): no word timing
+      // exists, so no burn. The upload is metadata-stripped and finished.
+      await stripMetadata(sourcePath, outPath);
+    } else {
+      const probe = await probeVideo(sourcePath);
 
-    const words = reel.voiceover_alignment
-      ? alignmentToWordTimings(reel.voiceover_alignment)
-      : await (async () => {
-          await extractAudioForTranscription(sourcePath, wavPath);
-          return transcribeWavForWordTimings(wavPath);
-        })();
+      const words = reel.voiceover_alignment
+        ? alignmentToWordTimings(reel.voiceover_alignment)
+        : await (async () => {
+            await extractAudioForTranscription(sourcePath, wavPath);
+            return transcribeWavForWordTimings(wavPath);
+          })();
 
-    if (words.length === 0) {
-      throw new Error("No word timings available to caption this video.");
+      if (words.length === 0) {
+        throw new Error("No word timings available to caption this video.");
+      }
+
+      const fontSize = captionFontSize(probe.height);
+      const lines = layoutLines(words, probe.width, fontSize);
+      fs.writeFileSync(assPath, linesToAss(lines, probe.width, probe.height));
+
+      // Punch-in re-framing, scheduled off the SAME phrase lines the captions
+      // use — so every zoom lands exactly on a subtitle change, which is what
+      // the reference reels do. Applied before the ASS burn in one pass (see
+      // burnSubtitlesAndStripMetadata): zooming after would scale the
+      // subtitles along with the frame.
+      let punchChain: string | null = null;
+      if (config.punchInEnabled) {
+        const opts = {
+          step: config.punchInStep,
+          maxLevel: config.punchInMaxLevel,
+          minGapSeconds: config.punchInMinGapSeconds,
+          minHoldSeconds: config.punchInMinHoldSeconds,
+          boundaryPercentile: config.punchInBoundaryPercentile,
+          minBeatSeconds: config.punchInMinBeatSeconds,
+          maxBeatSeconds: config.punchInMaxBeatSeconds,
+        };
+        const punches = buildPunchSchedule(words, lines, probe.durationSeconds, opts);
+        punchChain = punchInFilter(
+          punches,
+          probe.width,
+          probe.height,
+          probe.durationSeconds,
+          opts
+        );
+      }
+
+      await burnSubtitlesAndStripMetadata(sourcePath, assPath, outPath, punchChain);
     }
-
-    const fontSize = captionFontSize(probe.height);
-    const lines = layoutLines(words, probe.width, fontSize);
-    fs.writeFileSync(assPath, linesToAss(lines, probe.width, probe.height));
-
-    // Punch-in re-framing, scheduled off the SAME phrase lines the captions
-    // use — so every zoom lands exactly on a subtitle change, which is what
-    // the reference reels do. Applied before the ASS burn in one pass (see
-    // burnSubtitlesAndStripMetadata): zooming after would scale the
-    // subtitles along with the frame.
-    let punchChain: string | null = null;
-    if (config.punchInEnabled) {
-      const opts = {
-        step: config.punchInStep,
-        maxLevel: config.punchInMaxLevel,
-        minGapSeconds: config.punchInMinGapSeconds,
-        minHoldSeconds: config.punchInMinHoldSeconds,
-        boundaryPercentile: config.punchInBoundaryPercentile,
-        minBeatSeconds: config.punchInMinBeatSeconds,
-        maxBeatSeconds: config.punchInMaxBeatSeconds,
-      };
-      const punches = buildPunchSchedule(words, lines, probe.durationSeconds, opts);
-      punchChain = punchInFilter(
-        punches,
-        probe.width,
-        probe.height,
-        probe.durationSeconds,
-        opts
-      );
-    }
-
-    await burnSubtitlesAndStripMetadata(sourcePath, assPath, outPath, punchChain);
 
     await setCaptions(reelId, "success", outPath, null);
     await advanceStatus(reelId, "captioned");
@@ -767,6 +774,8 @@ export async function addOriginal(input: {
   brand: Brand;
   script: string;
   hook: Hook | null;
+  // App demos with on-screen text only: no voiceover, no subtitle burn.
+  voiceless?: boolean;
 }): Promise<Reel> {
   if (!input.script.trim()) throw new Error("An original needs a draft script.");
   const reel = await insertReel({
@@ -776,6 +785,7 @@ export async function addOriginal(input: {
     transcript: input.script.trim(),
     transcript_status: "success",
     hook: input.hook,
+    voiceless: input.voiceless ?? false,
   });
   return acceptReel(reel.id);
 }
@@ -830,6 +840,7 @@ export async function addManualReel(
         previous_status: null,
         thumbnail_url: scraped?.thumbnailUrl ?? null,
         hook: null,
+        voiceless: false,
         planned_post_at: null,
         post_links: [],
         created_at: "",

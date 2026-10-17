@@ -56,7 +56,7 @@ const SUMMARY_COLUMNS = `
   voiceover_status, voiceover_path, voiceover_error,
   captions_status, captions_video_path, captions_error,
   source_hashtags, publish_pack_status, publish_pack_error,
-  source_video_path, slug, status, previous_status, thumbnail_url, hook,
+  source_video_path, slug, status, previous_status, thumbnail_url, hook, voiceless,
   planned_post_at, ${POST_LINKS_JSON},
   created_at, updated_at,
   (transcript IS NOT NULL) AS has_transcript,
@@ -122,6 +122,7 @@ export interface NewReel {
   source_caption?: string | null;
   source_hashtags?: string[] | null;
   hook?: Hook | null;
+  voiceless?: boolean;
 }
 
 // Insert a reel. Returns the existing row if the shortcode is already present
@@ -136,8 +137,8 @@ export async function insertReel(r: NewReel): Promise<Reel> {
   const { rows } = await pool.query<Reel>(
     `INSERT INTO reels
       (account_id, hashtag_id, url, shortcode, views, source, transcript, transcript_status,
-       thumbnail_url, source_caption, source_hashtags, brand, hook)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       thumbnail_url, source_caption, source_hashtags, brand, hook, voiceless)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
     [
       r.account_id ?? null,
@@ -156,6 +157,7 @@ export async function insertReel(r: NewReel): Promise<Reel> {
       r.source_hashtags?.length ? JSON.stringify(r.source_hashtags) : null,
       r.brand,
       r.hook ?? null,
+      r.voiceless ?? false,
     ]
   );
   const id = rows[0].id;

@@ -73,6 +73,38 @@ export async function extractAudioForTranscription(
   );
 }
 
+// Metadata strip with no re-encode, for a voiceless original's upload: there
+// is no word timing to burn, but the project rule still holds (every video
+// the pipeline produces is stripped before it's "done"). Streams are copied;
+// global, per-stream and chapter metadata are dropped, and bitexact keeps the
+// muxer from writing its own encoder tag.
+export async function stripMetadata(videoPath: string, outPath: string): Promise<void> {
+  await execFileAsync(
+    FFMPEG,
+    [
+      "-y",
+      "-i",
+      videoPath,
+      "-map",
+      "0",
+      "-map_metadata",
+      "-1",
+      "-map_chapters",
+      "-1",
+      "-c",
+      "copy",
+      "-fflags",
+      "+bitexact",
+      "-flags:v",
+      "+bitexact",
+      "-flags:a",
+      "+bitexact",
+      outPath,
+    ],
+    { timeout: config.captionsFfmpegTimeoutMs }
+  );
+}
+
 // Burns the given ASS subtitle file into the video and strips all metadata
 // in the same pass (project rule: every video the pipeline produces must be
 // metadata-stripped before it's "done"). Re-encodes video (subtitles are

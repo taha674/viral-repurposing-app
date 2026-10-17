@@ -100,9 +100,9 @@ export default function AudioStage({
       <div className="row" style={{ marginTop: 16 }}>
         <button
           onClick={sendToVideo}
-          disabled={busy === "send" || reel.voiceover_status !== "success"}
+          disabled={busy === "send" || (!reel.voiceless && reel.voiceover_status !== "success")}
           title={
-            reel.voiceover_status !== "success"
+            !reel.voiceless && reel.voiceover_status !== "success"
               ? "Generate the voiceover before sending to Video."
               : undefined
           }

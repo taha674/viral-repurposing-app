@@ -98,6 +98,10 @@ function allowedActions(reel: Reel): string[] {
       a.push("approve_script", "adapt_reel", "edit_reel", "generate_publish_pack", "reject_reel", "move_back");
       break;
     case "approved":
+      if (reel.voiceless) {
+        a.push("send_to_video", "edit_reel", "reject_reel", "move_back");
+        break;
+      }
       a.push(reel.voiceover_status === "success" ? "send_to_video" : "generate_voiceover", "edit_reel", "reject_reel", "move_back");
       if (reel.voiceover_status === "success") a.push("generate_voiceover");
       break;
@@ -393,13 +397,14 @@ export function registerTools(server: McpServer): void {
         script: z.string().min(1).describe("The draft script"),
         brand: brandArg,
         hook: hookArg.optional(),
+        voiceless: z.boolean().optional().describe("True for an app demo with on-screen text only: no voiceover, Approved goes straight to Video, and burn_captions only strips the upload's metadata"),
         rationale: z.string().min(1).describe("Where this item comes from and why now"),
       },
     },
-    safe(async ({ script, brand, hook, rationale }) =>
+    safe(async ({ script, brand, hook, voiceless, rationale }) =>
       presentReel(
-        await withAudit("add_original", "write", { args: { brand, hook, script_chars: script.length }, rationale }, () =>
-          addOriginal({ brand: parseBrand(brand), script, hook: (hook as Hook | undefined) ?? null })
+        await withAudit("add_original", "write", { args: { brand, hook, voiceless, script_chars: script.length }, rationale }, () =>
+          addOriginal({ brand: parseBrand(brand), script, hook: (hook as Hook | undefined) ?? null, voiceless })
         )
       )
     )
@@ -717,7 +722,7 @@ export function registerTools(server: McpServer): void {
     safe(async ({ id }) => {
       const reel = await mustGet(id);
       if (reel.status !== "approved") throw new Error(`Reel ${id} is in "${reel.status}", not "approved".`);
-      if (reel.voiceover_status !== "success") throw new Error("Generate the voiceover first.");
+      if (!reel.voiceless && reel.voiceover_status !== "success") throw new Error("Generate the voiceover first.");
       await withAudit("send_to_video", "write", { reelId: id, args: { id } }, () => advanceStatus(id, "video"));
       return presentReel(await mustGet(id));
     })
@@ -757,7 +762,7 @@ export function registerTools(server: McpServer): void {
     "burn_captions",
     {
       description:
-        "Burn word-synced subtitles onto the uploaded video AND strip its metadata in one pass, producing the finished file (Video → Subtitled). Slow (minutes). Requires an uploaded video and a voiceover. Don't retry on failure; report captions_error.",
+        "Burn word-synced subtitles onto the uploaded video AND strip its metadata in one pass, producing the finished file (Video → Subtitled). For a voiceless original it only strips the metadata (no burn). Slow (minutes). Requires an uploaded video and a voiceover. Don't retry on failure; report captions_error.",
       inputSchema: { id: reelId },
     },
     safe(async ({ id }) =>

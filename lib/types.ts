@@ -183,6 +183,9 @@ export interface Reel {
   // Instagram's CDN URLs expire, so treat as best-effort — may 404.
   thumbnail_url: string | null;
   hook: Hook | null;
+  // An original with no voiceover (on-screen text only): Approved goes
+  // straight to Video and the upload is stripped, not burned.
+  voiceless: boolean;
   // Launch content OS (2026-10-18). The app never posts: these record what
   // the operator planned and did.
   planned_post_at: string | null;
