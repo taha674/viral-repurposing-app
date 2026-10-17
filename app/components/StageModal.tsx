@@ -140,10 +140,17 @@ export default function StageModal({
           <div>
             <h2 style={{ margin: 0 }}>{title}</h2>
             <span className="muted">
-              {reel.views?.toLocaleString() ?? "—"} views ·{" "}
-              <a href={reel.url} target="_blank" rel="noreferrer">
-                source
-              </a>
+              {reel.url ? (
+                <>
+                  {reel.views?.toLocaleString() ?? "—"} views ·{" "}
+                  <a href={reel.url} target="_blank" rel="noreferrer">
+                    source
+                  </a>
+                </>
+              ) : (
+                "original"
+              )}
+              {reel.hook && <> · hook {reel.hook}</>}
             </span>
           </div>
           <button className="modal-close" onClick={onClose} aria-label="Close">

@@ -5,7 +5,14 @@ export type Platform = "instagram";
 // Which brand a tracked source or reel belongs to (multi-brand, 2026-10-17).
 // Brand-specific prompts, voice and visuals live in lib/brands.
 export type Brand = "cyrus" | "nuronomics";
-export type ReelSource = "weekly_scan" | "manual" | "hashtag_scan";
+// "original" (2026-10-18): made from scratch with no scraped source (an app
+// demo, a hook-bank item). Enters at Script with its draft script in
+// `transcript` and an empty `url`.
+export type ReelSource = "weekly_scan" | "manual" | "hashtag_scan" | "original";
+// Launch hook under test (CONTEXT.md): A forgetting your Manzil, B weak
+// pages, C the adaptive method.
+export type Hook = "A" | "B" | "C";
+export const HOOKS: Hook[] = ["A", "B", "C"];
 export type TranscriptStatus = "pending" | "success" | "failed";
 export type RedLineFlag = "none" | "needs_review" | "rejected";
 export type VoiceoverStatus = "none" | "generating" | "success" | "failed";
@@ -154,6 +161,7 @@ export interface Reel {
   // Small preview image captured from the scrape, if the actor returned one.
   // Instagram's CDN URLs expire, so treat as best-effort — may 404.
   thumbnail_url: string | null;
+  hook: Hook | null;
   created_at: string;
   updated_at: string;
 }

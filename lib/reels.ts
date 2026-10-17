@@ -1,5 +1,7 @@
 import { getPool } from "./db";
+import { HOOKS } from "./types";
 import type {
+  Hook,
   Brand,
   Reel,
   ReelSource,
@@ -48,7 +50,7 @@ const SUMMARY_COLUMNS = `
   voiceover_status, voiceover_path, voiceover_error,
   captions_status, captions_video_path, captions_error,
   source_hashtags, publish_pack_status, publish_pack_error,
-  source_video_path, slug, status, previous_status, thumbnail_url,
+  source_video_path, slug, status, previous_status, thumbnail_url, hook,
   created_at, updated_at,
   (transcript IS NOT NULL) AS has_transcript,
   LEFT(transcript, 200) AS transcript_excerpt
@@ -112,6 +114,7 @@ export interface NewReel {
   // The source post's own caption + hashtags, straight off the scrape.
   source_caption?: string | null;
   source_hashtags?: string[] | null;
+  hook?: Hook | null;
 }
 
 // Insert a reel. Returns the existing row if the shortcode is already present
@@ -126,8 +129,8 @@ export async function insertReel(r: NewReel): Promise<Reel> {
   const { rows } = await pool.query<Reel>(
     `INSERT INTO reels
       (account_id, hashtag_id, url, shortcode, views, source, transcript, transcript_status,
-       thumbnail_url, source_caption, source_hashtags, brand)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       thumbnail_url, source_caption, source_hashtags, brand, hook)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [
       r.account_id ?? null,
@@ -145,6 +148,7 @@ export async function insertReel(r: NewReel): Promise<Reel> {
       // apart by length — both read as absent, which is what the UI shows.
       r.source_hashtags?.length ? JSON.stringify(r.source_hashtags) : null,
       r.brand,
+      r.hook ?? null,
     ]
   );
   const id = rows[0].id;
@@ -408,6 +412,14 @@ export async function setStatus(id: number, status: ReelStatus): Promise<void> {
 export async function advanceStatus(id: number, status: ReelStatus): Promise<void> {
   const pool = await getPool();
   await pool.query("UPDATE reels SET status = $1 WHERE id = $2", [status, id]);
+  await touch(id);
+}
+
+// Null clears the tag. Anything else outside A/B/C is an error, never stored.
+export async function setHook(id: number, hook: Hook | null): Promise<void> {
+  if (hook !== null && !HOOKS.includes(hook)) throw new Error(`Hook must be A, B or C (got ${String(hook)}).`);
+  const pool = await getPool();
+  await pool.query("UPDATE reels SET hook = $1 WHERE id = $2", [hook, id]);
   await touch(id);
 }
 

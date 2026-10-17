@@ -41,7 +41,7 @@ import { transcribeWavForWordTimings } from "./whisper";
 import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } from "./retention";
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import { buildPunchSchedule, punchInFilter } from "./punchIn";
-import type { Brand, Reel, RedLineFlag, PublishPack, TrackedAccount } from "./types";
+import type { Brand, Hook, Reel, RedLineFlag, PublishPack, TrackedAccount } from "./types";
 
 // Returns the reel's slug, minting it if it doesn't have one yet. Minting
 // normally happens on accept (acceptReel, below); this fallback only fires
@@ -699,6 +699,28 @@ export interface ManualAddResult {
   alreadyExisted: boolean;
 }
 
+// --- Original items (launch content OS, 2026-10-18) ---
+// A reel with no scraped source (an app demo, a hook-bank item). It skips
+// Scraped and enters at Script with its draft script as the transcript, so
+// it goes through the same red-line adaptation and approval gate as a
+// repurposed reel. No url, no shortcode, so no dedupe.
+export async function addOriginal(input: {
+  brand: Brand;
+  script: string;
+  hook: Hook | null;
+}): Promise<Reel> {
+  if (!input.script.trim()) throw new Error("An original needs a draft script.");
+  const reel = await insertReel({
+    brand: input.brand,
+    url: "",
+    source: "original",
+    transcript: input.script.trim(),
+    transcript_status: "success",
+    hook: input.hook,
+  });
+  return acceptReel(reel.id);
+}
+
 export async function addManualReel(
   url: string,
   force: boolean,
@@ -747,6 +769,7 @@ export async function addManualReel(
         status: "new",
         previous_status: null,
         thumbnail_url: scraped?.thumbnailUrl ?? null,
+        hook: null,
         created_at: "",
         updated_at: "",
       },

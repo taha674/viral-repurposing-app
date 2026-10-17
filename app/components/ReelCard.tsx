@@ -50,6 +50,7 @@ export default function ReelCard({
         <span>{reel.views?.toLocaleString() ?? "—"} views</span>
         <span>·</span>
         <span>{reel.source}</span>
+        {reel.hook && <span className="badge">hook {reel.hook}</span>}
         {stage === "scraped" && (
           <span
             className={`badge ${

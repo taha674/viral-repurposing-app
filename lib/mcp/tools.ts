@@ -8,10 +8,12 @@ import {
   setStatus,
   advanceStatus,
   updateEditable,
+  setHook,
 } from "../reels";
 import {
   acceptReel,
   addManualReel,
+  addOriginal,
   adaptReel,
   archiveReel,
   burnCaptions,
@@ -28,7 +30,7 @@ import { listScanLogs } from "../scanLogs";
 import { STAGES, stageOf, backTargetStatus } from "../stages";
 import type { Stage } from "../stages";
 import { mcpMediaUrl } from "./mediaToken";
-import type { Brand, Reel, PublishPack } from "../types";
+import { HOOKS, type Brand, type Hook, type Reel, type PublishPack } from "../types";
 import { withAudit } from "./audit";
 import { downloadVideo } from "./download";
 import { uploadUrl } from "./uploadToken";
@@ -60,6 +62,9 @@ function safe<A>(fn: (args: A) => Promise<unknown>) {
 }
 
 const reelId = z.number().int().positive().describe("Reel id");
+const hookArg = z
+  .enum(HOOKS as [string, ...string[]])
+  .describe("Launch hook under test: A forgetting your Manzil, B weak pages, C the adaptive method");
 const brandArg = z
   .enum(BRANDS.map((b) => b.id) as [Brand, ...Brand[]])
   .optional()
@@ -188,6 +193,7 @@ export function registerTools(server: McpServer): void {
         views: r.views,
         url: r.url,
         source: r.source,
+        hook: r.hook,
         slug: r.slug,
         transcript_status: r.transcript_status,
         voiceover_status: r.voiceover_status,
@@ -321,6 +327,40 @@ export function registerTools(server: McpServer): void {
         };
       }
       return { reel: presentReel(result.reel), forced: result.forced };
+    })
+  );
+
+  server.registerTool(
+    "add_original",
+    {
+      description:
+        "Add an ORIGINAL item (no scraped source: an app demo, a hook-bank idea) with its draft script. It enters at Script, then goes through adapt_reel and the same approve_script gate as any reel. Free (no paid call). Nuronomics items should carry a hook tag.",
+      inputSchema: {
+        script: z.string().min(1).describe("The draft script"),
+        brand: brandArg,
+        hook: hookArg.optional(),
+        rationale: z.string().min(1).describe("Where this item comes from and why now"),
+      },
+    },
+    safe(async ({ script, brand, hook, rationale }) =>
+      presentReel(
+        await withAudit("add_original", "write", { args: { brand, hook, script_chars: script.length }, rationale }, () =>
+          addOriginal({ brand: parseBrand(brand), script, hook: (hook as Hook | undefined) ?? null })
+        )
+      )
+    )
+  );
+
+  server.registerTool(
+    "set_hook",
+    {
+      description: "Tag a reel with the launch hook it tests (A / B / C), or clear the tag with hook=null.",
+      inputSchema: { id: reelId, hook: hookArg.nullable(), rationale: z.string().min(1) },
+    },
+    safe(async ({ id, hook, rationale }) => {
+      await mustGet(id);
+      await withAudit("set_hook", "write", { reelId: id, args: { id, hook }, rationale }, () => setHook(id, hook as Hook | null));
+      return presentReel(await mustGet(id));
     })
   );
 

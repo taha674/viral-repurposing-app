@@ -212,6 +212,10 @@ async function ensureSchema(pool: Pool): Promise<void> {
     ALTER TABLE tracked_hashtags ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT 'cyrus';
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT 'cyrus';
     CREATE INDEX IF NOT EXISTS idx_reels_brand ON reels(brand);
+
+    -- Launch content OS (2026-10-18): the A/B/C hook an item tests. Null
+    -- until tagged; validated in lib/reels.ts#setHook.
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS hook TEXT;
   `);
 
   await seedAccounts(pool);
