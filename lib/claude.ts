@@ -67,8 +67,10 @@ async function callStructured<T>(opts: {
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
+    // The SDK retries only 429 / 5xx / connection errors, so the attempt
+    // count is "up to", not exact.
     throw new Error(
-      `${opts.label} failed after ${config.claudeMaxRetries + 1} attempt(s): ${detail}`
+      `${opts.label} failed (up to ${config.claudeMaxRetries + 1} attempt(s)): ${detail}`
     );
   }
 
