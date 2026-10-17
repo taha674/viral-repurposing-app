@@ -176,7 +176,7 @@ async function touch(id: number): Promise<void> {
 }
 
 // Fields a transcript re-pull can opportunistically backfill. A re-pull hits
-// Apify again anyway, so anything useful in that response gets saved even
+// the provider again anyway, so anything useful in that response gets saved even
 // though the transcript is what we asked for. Each is written only when
 // present: a failed or field-less re-pull never clobbers what's on record
 // with null.

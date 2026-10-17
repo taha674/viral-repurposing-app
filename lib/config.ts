@@ -28,15 +28,15 @@ export const config = {
   // APP_PASSWORD since the cron caller isn't a browser session).
   cronSecret: process.env.CRON_SECRET ?? "",
 
-  // Apify
-  apifyToken: process.env.APIFY_TOKEN ?? "",
-  apifyActor: process.env.APIFY_INSTAGRAM_ACTOR ?? "apify/instagram-reel-scraper",
-  // Hashtag discovery actor (2026-08-24) — separate actor from the per-account
-  // reel scraper above. Input/output schema confirmed against Apify's published
-  // docs (apify.com/apify/instagram-hashtag-scraper), NOT live-verified against
-  // a real run the way apifyActor was — see the module-level note in apify.ts.
-  apifyHashtagActor:
-    process.env.APIFY_INSTAGRAM_HASHTAG_ACTOR ?? "apify/instagram-hashtag-scraper",
+  // treg (every Instagram read, replaced Apify 2026-10-18; lib/treg.ts). The
+  // app's own capped agent token, never a person's.
+  tregToken: process.env.TREG_TOKEN ?? "",
+  // Per routed call: the most treg may spend trying providers in turn.
+  tregRouteMaxCostUsd: Number(process.env.TREG_ROUTE_MAX_COST_USD ?? 0.02),
+  // Hard daily ceiling on recorded treg spend (provider_spend table).
+  tregDailySpendCapUsd: Number(process.env.TREG_DAILY_SPEND_CAP_USD ?? 0.25),
+  // Some providers take ~2 minutes on a slow account read.
+  tregTimeoutMs: intEnv("TREG_TIMEOUT_MS", 150_000),
 
   // Claude API (adaptation, publish pack, hashtag format filter). Replaced
   // Gemini 2026-10-18. Pinned model id: an alias that silently upgrades under
@@ -102,21 +102,16 @@ export const config = {
   // been found or every account's ranked candidate list is exhausted —
   // whichever comes first, so it's a target, not a promise, and it never
   // loops once accounts genuinely have nothing left to give. Each admitted
-  // reel costs a paid Apify transcript pull, so this doubles as the hard cap
+  // reel costs a paid transcript pull, so this doubles as the hard cap
   // on that spend for one scan run.
   scanMinNewReelsPerRun: intEnv("SCAN_MIN_NEW_REELS_PER_RUN", 10),
-  // Top reels pulled per hashtag during a hashtag scan (before the view-count
-  // and format filters run) — separate knob since hashtag volume/noise
-  // is very different from a tracked account's own post history.
+  // Most reels considered per hashtag or keyword source in one scan (before
+  // the view-count and format filters run). Bounds the per-candidate follow-up
+  // spend (Claude format check, view lookup, transcript).
   scanPostsPerHashtag: intEnv("SCAN_POSTS_PER_HASHTAG", 30),
-  // Which Apify field counts as "views" for the threshold. Instagram's public
-  // reel "views" number maps to plays, so playCount is the default;
-  // videoViewCount runs roughly 2x lower on the same reel.
-  viewMetric:
-    (process.env.VIEW_METRIC as "playCount" | "viewCount") ?? "playCount",
 
   // Hard caps (never loop silently against a paid API)
-  apifyMaxRetries: intEnv("APIFY_MAX_RETRIES", 1),
+  tregMaxRetries: intEnv("TREG_MAX_RETRIES", 1),
   claudeMaxRetries: intEnv("CLAUDE_MAX_RETRIES", 1),
   // Counts thinking tokens as well as the visible JSON (thinking can't be
   // turned off on the current Opus), hence well above the ~1k visible output.
@@ -238,8 +233,8 @@ export function hasMcpToken(): boolean {
   return config.mcpApiToken.trim().length > 0;
 }
 
-export function hasApify(): boolean {
-  return config.apifyToken.trim().length > 0;
+export function hasTreg(): boolean {
+  return config.tregToken.trim().length > 0;
 }
 
 export function hasClaude(): boolean {

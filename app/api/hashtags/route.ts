@@ -14,7 +14,8 @@ export async function POST(request: Request) {
     if (!tag) {
       return NextResponse.json({ error: "tag is required" }, { status: 400 });
     }
-    const hashtag = await addHashtag(tag, parseBrand(body.brand));
+    const kind = body.kind === "keyword" ? "keyword" : "hashtag";
+    const hashtag = await addHashtag(tag, parseBrand(body.brand), kind);
     return NextResponse.json({ hashtag }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to add hashtag";

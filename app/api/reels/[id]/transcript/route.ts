@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { retrieveTranscript } from "@/lib/service";
 
-// Retry transcript retrieval for a reel (hard-capped by the Apify client).
+// Retry transcript retrieval for a reel (hard-capped by the treg client).
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }

@@ -1,5 +1,5 @@
 import { getPool } from "./db";
-import type { Brand, TrackedHashtag } from "./types";
+import type { Brand, SourceKind, TrackedHashtag } from "./types";
 
 // Mirrors lib/accounts.ts exactly — same lifecycle (active/pause, last scan,
 // running found-count), just for the hashtag-based discovery mode
@@ -31,21 +31,28 @@ export async function getHashtag(id: number): Promise<TrackedHashtag | undefined
   return rows[0] ? mapHashtag(rows[0]) : undefined;
 }
 
-// Normalize a hashtag: strip leading '#', whitespace, lowercase. Deliberately
+// Normalize a hashtag: strip leading '#', whitespace, lowercase. A keyword
+// gets the same treatment but keeps (collapsed) inner spaces: "hifz revision".
+// Deliberately
 // does NOT "correct" spelling (e.g. "millionnaire" stays as typed) — this is
 // exactly the string passed to the scraper actor and must match what Taha
 // intends to search.
-export function normalizeHashtag(input: string): string {
-  return input.trim().replace(/^#/, "").trim().toLowerCase();
+export function normalizeHashtag(input: string, kind: SourceKind = "hashtag"): string {
+  const t = input.trim().toLowerCase().replace(/^#/, "").trim();
+  return kind === "keyword" ? t.replace(/\s+/g, " ") : t;
 }
 
-export async function addHashtag(rawTag: string, brand: Brand): Promise<TrackedHashtag> {
-  const tag = normalizeHashtag(rawTag);
-  if (!tag) throw new Error("Empty hashtag");
+export async function addHashtag(
+  rawTag: string,
+  brand: Brand,
+  kind: SourceKind = "hashtag"
+): Promise<TrackedHashtag> {
+  const tag = normalizeHashtag(rawTag, kind);
+  if (!tag) throw new Error(`Empty ${kind}`);
   const pool = await getPool();
   await pool.query(
-    "INSERT INTO tracked_hashtags (tag, brand) VALUES ($1, $2) ON CONFLICT (tag) DO NOTHING",
-    [tag, brand]
+    "INSERT INTO tracked_hashtags (tag, brand, kind) VALUES ($1, $2, $3) ON CONFLICT (tag) DO NOTHING",
+    [tag, brand, kind]
   );
   const { rows } = await pool.query<HashtagRow>(
     "SELECT * FROM tracked_hashtags WHERE tag = $1",
@@ -56,6 +63,9 @@ export async function addHashtag(rawTag: string, brand: Brand): Promise<TrackedH
   // handing back the other brand's row.
   if (rows[0].brand !== brand) {
     throw new Error(`Already tracked under ${rows[0].brand}`);
+  }
+  if (rows[0].kind !== kind) {
+    throw new Error(`"${tag}" is already tracked as a ${rows[0].kind}`);
   }
   return mapHashtag(rows[0]);
 }

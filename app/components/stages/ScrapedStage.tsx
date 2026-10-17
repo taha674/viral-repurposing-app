@@ -101,7 +101,7 @@ export default function ScrapedStage({
           onClick={retryTranscript}
           disabled={busy === "transcript"}
         >
-          {busy === "transcript" ? "Retrieving…" : "Re-pull from Apify"}
+          {busy === "transcript" ? "Retrieving…" : "Re-pull transcript"}
         </button>
       </div>
 

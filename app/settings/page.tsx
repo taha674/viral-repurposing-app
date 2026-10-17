@@ -129,7 +129,7 @@ const SCAN_FIELDS: { key: keyof ScanLimits; label: string; hint: string }[] = [
   {
     key: "minNewReelsPerRun",
     label: "New reels per scan",
-    hint: "Total cap per run. Each one costs a paid Apify transcript pull — this is the main spend lever.",
+    hint: "Total cap per run. Each one costs a paid transcript pull — this is the main spend lever.",
   },
   {
     key: "batchPerAccount",
@@ -227,7 +227,7 @@ function ScanPanel() {
         </button>
       </div>
       <p className="muted">
-        Off skips the Monday run entirely (no Apify calls). &ldquo;Run scan
+        Off skips the Monday run entirely (no paid scraping calls). &ldquo;Run scan
         now&rdquo; still works. The limits below apply to every scan, scheduled
         or manual.
       </p>

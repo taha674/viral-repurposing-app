@@ -65,7 +65,7 @@ export default function ScriptStage({
           onClick={retryTranscript}
           disabled={busy === "transcript"}
         >
-          {busy === "transcript" ? "Retrieving…" : "Re-pull from Apify"}
+          {busy === "transcript" ? "Retrieving…" : "Re-pull transcript"}
         </button>
         <button onClick={adapt} disabled={busy === "adapt" || !transcript.trim()}>
           {busy === "adapt" ? "Adapting…" : "Run adaptation"}

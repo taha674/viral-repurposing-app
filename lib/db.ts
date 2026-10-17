@@ -173,7 +173,7 @@ async function ensureSchema(pool: Pool): Promise<void> {
     -- always assuming Scraped.
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS previous_status TEXT;
 
-    -- Small preview thumbnail (2026-08-24), captured from Apify's scrape
+    -- Small preview thumbnail (2026-08-24), captured from the scrape
     -- response when available. Instagram's CDN URLs are signed/expiring, so
     -- this is best-effort — the UI hides the image if it 404s later.
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
@@ -220,6 +220,21 @@ async function ensureSchema(pool: Pool): Promise<void> {
     -- Schedule and posted (2026-10-18). Recorded by the operator or Hermes;
     -- the app never posts. Posted is its own status, never 'archived'.
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS planned_post_at TIMESTAMPTZ;
+
+    -- treg (2026-10-18): keyword sources share tracked_hashtags, and every
+    -- paid treg call's X-Treg-Cost-Micro lands here. TREG_DAILY_SPEND_CAP_USD
+    -- reads it, as will the month-to-date spend figure.
+    ALTER TABLE tracked_hashtags ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'hashtag';
+    CREATE TABLE IF NOT EXISTS provider_spend (
+      id         SERIAL PRIMARY KEY,
+      at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+      provider   TEXT NOT NULL,
+      endpoint   TEXT NOT NULL,
+      served_by  TEXT,
+      call_id    TEXT,
+      cost_micro BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_spend_at ON provider_spend(at);
 
     -- One live link per platform an item went out on (ticket 08), so a
     -- cross-post is tracked on one item. Replaces reels.posted_url.

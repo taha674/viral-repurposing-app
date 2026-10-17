@@ -284,12 +284,27 @@ export function registerTools(server: McpServer): void {
     )
   );
 
-  server.registerTool("list_hashtags", { description: "Tracked hashtags for discovery scans." }, safe(async () => listHashtags()));
+  server.registerTool(
+    "list_hashtags",
+    { description: "Tracked hashtag and keyword sources for discovery scans (`kind`: hashtag | keyword). Omit brand for all brands.", inputSchema: { brand: brandArg } },
+    safe(async ({ brand }) => listHashtags(brand))
+  );
   server.registerTool(
     "add_hashtag",
     { description: "Track a hashtag for discovery (with or without #) for a brand (default cyrus).", inputSchema: { tag: z.string().min(1), brand: brandArg } },
     safe(async ({ tag, brand }) =>
       withAudit("add_hashtag", "write", { args: { tag, brand } }, () => addHashtag(tag.trim(), parseBrand(brand)))
+    )
+  );
+  server.registerTool(
+    "add_keyword",
+    {
+      description:
+        "Track a keyword source for a brand (default cyrus): the scan searches Instagram reels for the phrase (e.g. \"hifz revision\"), then applies the brand's format filter and view floor like a hashtag. Pause or remove it with set_hashtag_active / remove_hashtag.",
+      inputSchema: { keyword: z.string().min(1), brand: brandArg },
+    },
+    safe(async ({ keyword, brand }) =>
+      withAudit("add_keyword", "write", { args: { keyword, brand } }, () => addHashtag(keyword, parseBrand(brand), "keyword"))
     )
   );
   server.registerTool(
@@ -317,7 +332,7 @@ export function registerTools(server: McpServer): void {
     "run_scan",
     {
       description:
-        "Run a discovery scan over all active accounts and hashtags now (same as the web app's 'Run scan now'). PAID (Apify) and slow. Capped per day — if refused, do not retry; ask the operator.",
+        "Run a discovery scan over all active accounts, hashtags and keywords now (same as the web app's 'Run scan now'). PAID (treg + Claude format checks) and slow. Capped per day — if refused, do not retry; ask the operator.",
     },
     safe(async () => withAudit("run_scan", "scan", {}, () => runScan()))
   );
@@ -327,7 +342,7 @@ export function registerTools(server: McpServer): void {
     "add_reel",
     {
       description:
-        "Add one Instagram reel by URL (scrape + transcript). PAID (Apify). Below the view threshold it is NOT saved unless force=true — pass force only if the operator chose this reel. Returns the reel, or {qualifies:false} if below threshold.",
+        "Add one Instagram reel by URL (detail + transcript). PAID (treg). Below the view threshold it is NOT saved unless force=true — pass force only if the operator chose this reel. Returns the reel, or {qualifies:false} if below threshold.",
       inputSchema: { url: z.string().url(), force: z.boolean().optional(), brand: brandArg },
     },
     safe(async ({ url, force, brand }) => {
@@ -381,7 +396,7 @@ export function registerTools(server: McpServer): void {
   server.registerTool(
     "retry_transcript",
     {
-      description: "Re-pull the transcript for a reel whose transcript failed. PAID (Apify) — one call, one pull; don't loop on failure, report it.",
+      description: "Re-pull the transcript for a reel whose transcript failed. PAID (treg) — one call, one pull; don't loop on failure, report it.",
       inputSchema: { id: reelId },
     },
     safe(async ({ id }) =>

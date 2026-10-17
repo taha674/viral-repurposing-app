@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { TrackedAccount, TrackedHashtag } from "@/lib/types";
+import type { SourceKind, TrackedAccount, TrackedHashtag } from "@/lib/types";
 import { currentBrand } from "../BrandSwitcher";
 
 // Discovery Sources (2026-08-24, renamed from "Tracked Accounts"): the two
@@ -14,8 +14,8 @@ export default function DiscoveryPage() {
       <h1>Discovery Sources</h1>
       <p className="muted">
         What the scan (on-demand and weekly) draws from. Tracked accounts are
-        swept for their own recent posts; tracked hashtags are swept for
-        top/recent reels matching the tag, filtered to the brand&apos;s
+        swept for their own recent posts; tracked hashtags and keywords are
+        swept for reels matching the tag or phrase, filtered to the brand&apos;s
         format and view-count bar (Cyrus: talking head, 500K+; Nuronomics:
         hifz explainers, 50K+). Instagram only — TikTok is a
         later phase.
@@ -152,6 +152,7 @@ function AccountsSection() {
 function HashtagsSection() {
   const [hashtags, setHashtags] = useState<TrackedHashtag[]>([]);
   const [tag, setTag] = useState("");
+  const [kind, setKind] = useState<SourceKind>("hashtag");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -170,7 +171,7 @@ function HashtagsSection() {
     const res = await fetch("/api/hashtags", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ tag, brand: currentBrand() }),
+      body: JSON.stringify({ tag, kind, brand: currentBrand() }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -191,30 +192,35 @@ function HashtagsSection() {
   }
 
   async function remove(h: TrackedHashtag) {
-    if (!confirm(`Remove #${h.tag}?`)) return;
+    if (!confirm(`Remove ${label(h)}?`)) return;
     await fetch(`/api/hashtags/${h.id}`, { method: "DELETE" });
     load();
   }
 
   return (
     <>
-      <h2>Tracked Hashtags</h2>
+      <h2>Tracked Hashtags and Keywords</h2>
       <p className="muted">
-        Reels are pulled from the hashtag, qualified by view count, then
-        checked against the brand&apos;s format before entering the
-        shortlist — this filters out skits and other formats automatically.
+        Reels are pulled from the hashtag (or found by searching the keyword),
+        checked against the brand&apos;s format, then qualified by view count
+        before entering the shortlist — this filters out skits and other
+        formats automatically.
       </p>
       <div className="card">
         <div className="row">
+          <select value={kind} onChange={(e) => setKind(e.target.value as SourceKind)} aria-label="Source kind">
+            <option value="hashtag">Hashtag</option>
+            <option value="keyword">Keyword</option>
+          </select>
           <input
             type="text"
-            placeholder="hashtag, with or without #"
+            placeholder={kind === "hashtag" ? "hashtag, with or without #" : "keyword or phrase, e.g. hifz revision"}
             value={tag}
             onChange={(e) => setTag(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && add()}
           />
           <button onClick={add} disabled={busy || !tag.trim()}>
-            Add hashtag
+            Add {kind}
           </button>
         </div>
         {error && <p className="error">{error}</p>}
@@ -225,7 +231,7 @@ function HashtagsSection() {
           <table>
             <thead>
               <tr>
-                <th>Hashtag</th>
+                <th>Source</th>
                 <th>Status</th>
                 <th>Last scanned</th>
                 <th>Reels found</th>
@@ -236,13 +242,17 @@ function HashtagsSection() {
               {hashtags.map((h) => (
                 <tr key={h.id}>
                   <td>
-                    <a
-                      href={`https://www.instagram.com/explore/tags/${h.tag}/`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      #{h.tag}
-                    </a>
+                    {h.kind === "keyword" ? (
+                      label(h)
+                    ) : (
+                      <a
+                        href={`https://www.instagram.com/explore/tags/${h.tag}/`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {label(h)}
+                      </a>
+                    )}
                   </td>
                   <td>
                     <span className={`badge ${h.active ? "green" : ""}`}>
@@ -264,7 +274,7 @@ function HashtagsSection() {
               {hashtags.length === 0 && (
                 <tr>
                   <td colSpan={5} className="muted">
-                    No hashtags yet.
+                    No hashtags or keywords yet.
                   </td>
                 </tr>
               )}
@@ -275,3 +285,5 @@ function HashtagsSection() {
     </>
   );
 }
+
+const label = (h: TrackedHashtag) => (h.kind === "keyword" ? `"${h.tag}"` : `#${h.tag}`);

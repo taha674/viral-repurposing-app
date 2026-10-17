@@ -6,7 +6,7 @@ import { deleteSetting, getSetting, setSetting } from "./settings";
 // operator saves an override.
 //
 // Scheduled scanning is OFF unless explicitly enabled (absent key = off). The
-// scheduled run cost real Apify spend unattended, so a fresh deploy or a
+// scheduled run cost real treg and Claude spend unattended, so a fresh deploy or a
 // wiped settings row must never silently turn it back on. Manual "Run scan
 // now" and the MCP run_scan tool are unaffected by the switch.
 

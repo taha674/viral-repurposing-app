@@ -30,7 +30,15 @@ import {
 } from "./reels";
 import { baseSlug, reelFileName } from "./naming";
 import { getScanLimits } from "./scanSettings";
-import { scanAccount, scanHashtag, fetchReel, captionBody, type ScrapedReel } from "./apify";
+import {
+  scanAccount,
+  scanHashtag,
+  searchReels,
+  fetchReel,
+  fetchTranscript,
+  captionBody,
+  type ScrapedReel,
+} from "./treg";
 import { runAdaptation, classifyFormat, runPublishPack } from "./claude";
 import type { CoverCandidate } from "./publishPrompt";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
@@ -60,28 +68,16 @@ async function ensureSlug(reel: Reel): Promise<string> {
 }
 
 // --- Transcript retrieval (shared by manual add + scan) ---
-// The Apify client already hard-caps retries; here we just translate a failed
-// pull into a flagged status rather than looping. Fail loud, never silently.
+// The treg client already hard-caps retries; here we just translate a failed
+// pull into a flagged status rather than looping. Fail loud, never silently:
+// a failed transcript is pasted by hand. Caption, hashtags and thumbnail
+// come from the scan row or fetchReel, not from this call.
 export async function retrieveTranscript(reelId: number): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
   try {
-    const scraped = await fetchReel(reel.url);
-    // The source caption and hashtags ride along on the same response we're
-    // already paying for, so they're backfilled here too — this is also the
-    // path every account-scan qualifier takes, so new reels get them whether
-    // they arrive by scan or by manual add. setTranscript never overwrites
-    // an existing value with null, so a field-less re-pull is harmless.
-    const extras = {
-      thumbnailUrl: scraped?.thumbnailUrl,
-      sourceCaption: scraped?.caption,
-      sourceHashtags: scraped?.hashtags,
-    };
-    if (scraped?.transcript) {
-      await setTranscript(reelId, scraped.transcript, "success", extras);
-    } else {
-      await setTranscript(reelId, reel.transcript, "failed", extras);
-    }
+    const transcript = await fetchTranscript(reel.url);
+    await setTranscript(reelId, transcript ?? reel.transcript, transcript ? "success" : "failed");
   } catch {
     await setTranscript(reelId, reel.transcript, "failed");
   }
@@ -780,7 +776,8 @@ export async function addManualReel(
   brand: Brand
 ): Promise<ManualAddResult> {
   const shortcode = extractShortcode(url);
-  // Single call: metadata + transcript (it's a chosen reel, so pull both).
+  // Metadata first; the transcript is a second paid call, made only for a
+  // reel that will be saved.
   const scraped = await fetchReel(url);
   const views = scraped?.views ?? null;
   const qualifies = views !== null && views >= config.viewThreshold;
@@ -835,14 +832,15 @@ export async function addManualReel(
   }
 
   // insertReel dedupes on shortcode and returns the existing row if present.
+  const transcript = await fetchTranscript(url).catch(() => null);
   const reel = await insertReel({
     brand,
     url,
     shortcode: scraped?.shortcode ?? shortcode,
     views,
     source: "manual",
-    transcript: scraped?.transcript ?? null,
-    transcript_status: scraped?.transcript ? "success" : "failed",
+    transcript,
+    transcript_status: transcript ? "success" : "failed",
     thumbnail_url: scraped?.thumbnailUrl ?? null,
     source_caption: scraped?.caption ?? null,
     source_hashtags: scraped?.hashtags ?? null,
@@ -980,17 +978,19 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
   return { count: accounts.length, newReels: totalNew, errors };
 }
 
-// Hashtag discovery scan (2026-08-24). Three-stage funnel per hashtag, cheap
-// to expensive, mirroring the account scan's cheap-sweep-then-transcript
-// pattern:
-//   1. Cheap hashtag sweep (scanHashtag) — view counts + thumbnails only.
+// Hashtag and keyword discovery scan (2026-08-24; keyword sources 2026-10-18).
+// Funnel per source, cheap to expensive, mirroring the account scan's
+// cheap-sweep-then-transcript pattern:
+//   1. Cheap sweep (scanHashtag / searchReels) — thumbnails, views when the
+//      provider has them.
 //   2. View-count qualification (VIEW_THRESHOLD for Cyrus; the smaller hifz
 //      niche has its own floor, VIEW_THRESHOLD_NURONOMICS),
 //      skipping anything already on record (by shortcode) before spending
 //      a Claude call on it.
 //   3. Per-brand format classification on the thumbnail (Claude vision,
 //      claude.ts#classifyFormat) — only reels in the brand's format move
-//      on. Reels that don't qualify visually are neither inserted nor
+//      on. A row that came without views gets them from fetchReel here and
+//      must clear the floor. Reels that don't qualify are neither inserted nor
 //      transcript-pulled, since the whole point is filtering OUT skits/other
 //      formats before the expensive per-reel transcript call.
 // A classification failure (bad thumbnail fetch, model error) skips just
@@ -1006,13 +1006,19 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
 
   for (const hashtag of hashtags) {
     try {
-      const scraped = await scanHashtag(hashtag.tag, limits.postsPerHashtag);
-      const qualifying = scraped.filter(
-        (r) => r.views !== null && r.views >= hashtagViewThresholdFor(hashtag.brand) && r.url
+      const isKeyword = hashtag.kind === "keyword";
+      const scraped = (isKeyword ? await searchReels(hashtag.tag) : await scanHashtag(hashtag.tag)).slice(
+        0,
+        limits.postsPerHashtag
       );
+      const floor = hashtagViewThresholdFor(hashtag.brand);
+      // A row with no view count (common in keyword search) stays in until
+      // its views are looked up below.
+      const qualifying = scraped.filter((r) => r.url && (r.views === null || r.views >= floor));
 
       let foundForHashtag = 0;
       let skippedFormat = 0;
+      let skippedViews = 0;
       for (const r of qualifying) {
         const shortcode = r.shortcode ?? extractShortcode(r.url);
         if (shortcode && (await findByShortcode(shortcode))) continue; // already on record
@@ -1032,13 +1038,23 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
           continue;
         }
 
+        // Views for format-matching rows that came without them: one paid
+        // detail lookup each, only now, to keep cost down.
+        if (r.views === null) {
+          r.views = (await fetchReel(r.url).catch(() => null))?.views ?? null;
+          if (r.views === null || r.views < floor) {
+            skippedViews += 1;
+            continue;
+          }
+        }
+
         const reel = await insertReel({
           brand: hashtag.brand,
           hashtag_id: hashtag.id,
           url: r.url,
           shortcode: r.shortcode,
           views: r.views,
-          source: "hashtag_scan",
+          source: isKeyword ? "keyword_scan" : "hashtag_scan",
           thumbnail_url: r.thumbnailUrl,
           source_caption: r.caption,
           source_hashtags: r.hashtags,
@@ -1053,15 +1069,15 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
       newReels += foundForHashtag;
       await logScan(
         null,
-        `#${hashtag.tag}`,
+        isKeyword ? `"${hashtag.tag}"` : `#${hashtag.tag}`,
         "ok",
-        `${qualifying.length} qualifying, ${skippedFormat} wrong format, ${foundForHashtag} new`,
+        `${qualifying.length} qualifying, ${skippedFormat} wrong format, ${skippedViews} under the view floor, ${foundForHashtag} new`,
         foundForHashtag
       );
     } catch (err) {
       errors += 1;
       const message = err instanceof Error ? err.message : String(err);
-      await logScan(null, `#${hashtag.tag}`, "error", message, 0);
+      await logScan(null, hashtag.kind === "keyword" ? `"${hashtag.tag}"` : `#${hashtag.tag}`, "error", message, 0);
     }
   }
 

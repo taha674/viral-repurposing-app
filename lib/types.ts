@@ -8,7 +8,7 @@ export type Brand = "cyrus" | "nuronomics";
 // "original" (2026-10-18): made from scratch with no scraped source (an app
 // demo, a hook-bank item). Enters at Script with its draft script in
 // `transcript` and an empty `url`.
-export type ReelSource = "weekly_scan" | "manual" | "hashtag_scan" | "original";
+export type ReelSource = "weekly_scan" | "manual" | "hashtag_scan" | "keyword_scan" | "original";
 // Launch hook under test (CONTEXT.md): A forgetting your Manzil, B weak
 // pages, C the adaptive method.
 export type Hook = "A" | "B" | "C";
@@ -108,9 +108,14 @@ export interface TrackedAccount {
 // Hashtag-based discovery (2026-08-24): a second discovery mode alongside
 // tracked accounts. Same lifecycle shape (active/pause, last scan, running
 // found-count) so it reuses the account scan's UI and scan patterns.
+// A hashtag source scans the tag's feed; a keyword source (2026-10-18)
+// searches reels by phrase, e.g. "hifz revision". Same table and lifecycle.
+export type SourceKind = "hashtag" | "keyword";
+
 export interface TrackedHashtag {
   id: number;
   brand: Brand;
+  kind: SourceKind;
   tag: string; // stored without the leading '#'
   active: number; // 0/1, mirrors TrackedAccount
   last_scanned_at: string | null;
