@@ -164,7 +164,9 @@ export default function StageModal({
           {stage === "adaptation" && <AdaptationStage {...stageProps} />}
           {stage === "audio" && <AudioStage {...stageProps} />}
           {stage === "video" && <VideoStage {...stageProps} />}
-          {stage === "subtitled" && <SubtitledStage {...stageProps} />}
+          {(stage === "subtitled" || stage === "scheduled" || stage === "posted") && (
+            <SubtitledStage {...stageProps} />
+          )}
           {(stage === "rejected" || stage === "done") && (
             <p className="muted">
               This reel is in a tray — restore it from the board to reopen it here.

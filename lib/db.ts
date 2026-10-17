@@ -216,6 +216,12 @@ async function ensureSchema(pool: Pool): Promise<void> {
     -- Launch content OS (2026-10-18): the A/B/C hook an item tests. Null
     -- until tagged; validated in lib/reels.ts#setHook.
     ALTER TABLE reels ADD COLUMN IF NOT EXISTS hook TEXT;
+
+    -- Schedule and posted (2026-10-18). Recorded by the operator or Hermes;
+    -- the app never posts. Posted is its own status, never 'archived'.
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS planned_post_at TIMESTAMPTZ;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS posted_url TEXT;
+    ALTER TABLE reels ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ;
   `);
 
   await seedAccounts(pool);

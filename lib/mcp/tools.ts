@@ -14,6 +14,8 @@ import {
   acceptReel,
   addManualReel,
   addOriginal,
+  scheduleItem,
+  markPosted,
   adaptReel,
   archiveReel,
   burnCaptions,
@@ -103,7 +105,13 @@ function allowedActions(reel: Reel): string[] {
       a.push("reject_reel", "move_back");
       break;
     case "captioned":
-      a.push("get_media_links", "generate_publish_pack", "edit_reel", "reject_reel", "move_back", "archive_reel");
+      a.push("get_media_links", "generate_publish_pack", "edit_reel", "schedule_item", "mark_posted", "reject_reel", "move_back", "archive_reel");
+      break;
+    case "scheduled":
+      a.push("get_media_links", "edit_reel", "schedule_item", "mark_posted", "move_back");
+      break;
+    case "posted":
+      a.push("get_media_links", "move_back", "archive_reel");
       break;
     case "rejected":
     case "archived":
@@ -149,6 +157,8 @@ export function registerTools(server: McpServer): void {
         red_line_flag: r.red_line_flag,
         views: r.views,
         slug: r.slug,
+        hook: r.hook,
+        planned_post_at: r.planned_post_at,
       });
       for (const r of reels) counts[stageOf(r)] = (counts[stageOf(r)] ?? 0) + 1;
       return {
@@ -159,6 +169,8 @@ export function registerTools(server: McpServer): void {
         awaiting_voiceover: reels.filter((r) => r.status === "approved" && r.voiceover_status !== "success").map(brief),
         awaiting_video_upload: reels.filter((r) => r.status === "video" && !r.source_video_path).map(brief),
         ready_to_burn: reels.filter((r) => r.status === "video" && r.source_video_path).map(brief),
+        ready_to_schedule: reels.filter((r) => r.status === "captioned").map(brief),
+        scheduled: reels.filter((r) => r.status === "scheduled").map(brief),
         flagged: reels.filter((r) => r.red_line_flag !== "none").map(brief),
       };
     })
@@ -170,7 +182,7 @@ export function registerTools(server: McpServer): void {
       description:
         "List reels (trimmed: no transcript/analysis). Optionally filter by kanban stage. Rejected and archived reels are omitted unless include_trays is true. Use get_reel for the full row.",
       inputSchema: {
-        stage: z.enum(["scraped", "script", "adaptation", "audio", "video", "subtitled", "rejected", "done"]).optional(),
+        stage: z.enum(["scraped", "script", "adaptation", "audio", "video", "subtitled", "scheduled", "posted", "rejected", "done"]).optional(),
         include_trays: z.boolean().optional(),
         brand: brandArg,
         limit: z.number().int().min(1).max(200).optional(),
@@ -194,6 +206,8 @@ export function registerTools(server: McpServer): void {
         url: r.url,
         source: r.source,
         hook: r.hook,
+        planned_post_at: r.planned_post_at,
+        posted_url: r.posted_url,
         slug: r.slug,
         transcript_status: r.transcript_status,
         voiceover_status: r.voiceover_status,
@@ -492,7 +506,7 @@ export function registerTools(server: McpServer): void {
     "archive_reel",
     {
       description:
-        "Archive a finished (Subtitled-stage) reel as posted. IRREVERSIBLE FILE DELETE: this permanently purges the reel's whole file folder (voiceover, source video, subtitled video) from disk to reclaim volume space — not just a kanban move. Only the adapted script/publish pack text survives in the DB; restore_reel can bring the reel row back but NOT its files. " +
+        "Archive a finished (Subtitled or Posted) reel to free disk. To record that a reel was posted, use mark_posted instead — that keeps the files. IRREVERSIBLE FILE DELETE: this permanently purges the reel's whole file folder (voiceover, source video, subtitled video) from disk to reclaim volume space — not just a kanban move. Only the adapted script/publish pack text survives in the DB; restore_reel can bring the reel row back but NOT its files. " +
         "Because this destroys data, the agent must ALWAYS get explicit operator confirmation on Telegram first (never infer 'this was probably posted') and pass operator_confirmed=true with confirmation_note quoting their reply — the call is refused otherwise, regardless of stage or red_line_flag.",
       inputSchema: {
         id: reelId,
@@ -550,6 +564,44 @@ export function registerTools(server: McpServer): void {
       );
       return presentReel(await mustGet(id));
     })
+  );
+
+  server.registerTool(
+    "schedule_item",
+    {
+      description:
+        "Record the planned post time for a finished (Subtitled) item, or move an already scheduled one (Subtitled → Scheduled). Bookkeeping only: the app never posts; the operator publishes by hand. Use the time the operator agreed.",
+      inputSchema: {
+        id: reelId,
+        planned_post_at: z.string().min(1).describe("ISO 8601 date-time with offset, e.g. 2026-10-24T18:00:00+01:00"),
+        rationale: z.string().min(1),
+      },
+    },
+    safe(async ({ id, planned_post_at, rationale }) =>
+      presentReel(
+        await withAudit("schedule_item", "write", { reelId: id, args: { id, planned_post_at }, rationale }, () =>
+          scheduleItem(id, planned_post_at)
+        )
+      )
+    )
+  );
+
+  server.registerTool(
+    "mark_posted",
+    {
+      description:
+        "Record that the OPERATOR published this item by hand (Subtitled/Scheduled → Posted), with the live post's https URL. Only call after the operator says it is live and gives or confirms the link — never infer it. Keeps all files (unlike archive_reel).",
+      inputSchema: {
+        id: reelId,
+        posted_url: z.string().url().describe("https link to the live post"),
+        rationale: z.string().min(1).describe("How you know it is live, e.g. the operator's Telegram reply"),
+      },
+    },
+    safe(async ({ id, posted_url, rationale }) =>
+      presentReel(
+        await withAudit("mark_posted", "write", { reelId: id, args: { id, posted_url }, rationale }, () => markPosted(id, posted_url))
+      )
+    )
   );
 
   server.registerTool(

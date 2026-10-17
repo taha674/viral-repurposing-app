@@ -6,7 +6,7 @@ import {
   advanceStatus,
   parseAnalysis,
 } from "@/lib/reels";
-import { archiveReel } from "@/lib/service";
+import { archiveReel, scheduleItem, markPosted } from "@/lib/service";
 import type { ReelStatus } from "@/lib/types";
 
 // The status transitions this generic PATCH accepts from the client.
@@ -72,8 +72,24 @@ export async function PATCH(
     });
   }
 
+  // Schedule / posted bookkeeping (the app never posts). Service errors are
+  // the operator-readable precondition messages.
+  try {
+    if (body.planned_post_at !== undefined) await scheduleItem(reelId, String(body.planned_post_at));
+    if (body.posted_url !== undefined) await markPosted(reelId, String(body.posted_url));
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+  }
+
   if (body.status !== undefined) {
-    if (!CLIENT_SETTABLE_STATUSES.includes(body.status)) {
+    // Move back from Scheduled/Posted is a plain back-move: the file is
+    // already burned. Anywhere else "captioned" stays the burn's result only,
+    // and "scheduled" needs a time (planned_post_at above).
+    const current = (await getReel(reelId))!.status;
+    const isBackMove =
+      (body.status === "captioned" && (current === "scheduled" || current === "posted")) ||
+      (body.status === "scheduled" && current === "posted");
+    if (!isBackMove && !CLIENT_SETTABLE_STATUSES.includes(body.status)) {
       return NextResponse.json({ error: "invalid status" }, { status: 400 });
     }
     if (body.status === "archived") {

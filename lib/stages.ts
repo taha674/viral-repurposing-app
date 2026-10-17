@@ -10,7 +10,9 @@ export type Stage =
   | "adaptation"
   | "audio"
   | "video"
-  | "subtitled";
+  | "subtitled"
+  | "scheduled"
+  | "posted";
 
 export type Placement = Stage | "rejected" | "done";
 
@@ -50,6 +52,18 @@ export const STAGES: { id: Stage; title: string; blurb: string; statuses: ReelSt
     title: "Subtitled",
     blurb: "Finished, metadata-stripped file — ready to download.",
     statuses: ["captioned"],
+  },
+  {
+    id: "scheduled",
+    title: "Scheduled",
+    blurb: "Post time picked — the operator publishes by hand.",
+    statuses: ["scheduled"],
+  },
+  {
+    id: "posted",
+    title: "Posted",
+    blurb: "Published by the operator. Files kept (Archive deletes them).",
+    statuses: ["posted"],
   },
 ];
 

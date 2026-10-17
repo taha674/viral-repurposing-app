@@ -51,6 +51,7 @@ const SUMMARY_COLUMNS = `
   captions_status, captions_video_path, captions_error,
   source_hashtags, publish_pack_status, publish_pack_error,
   source_video_path, slug, status, previous_status, thumbnail_url, hook,
+  planned_post_at, posted_url, posted_at,
   created_at, updated_at,
   (transcript IS NOT NULL) AS has_transcript,
   LEFT(transcript, 200) AS transcript_excerpt
@@ -420,6 +421,24 @@ export async function setHook(id: number, hook: Hook | null): Promise<void> {
   if (hook !== null && !HOOKS.includes(hook)) throw new Error(`Hook must be A, B or C (got ${String(hook)}).`);
   const pool = await getPool();
   await pool.query("UPDATE reels SET hook = $1 WHERE id = $2", [hook, id]);
+  await touch(id);
+}
+
+export async function setSchedule(id: number, plannedAt: Date): Promise<void> {
+  const pool = await getPool();
+  await pool.query(
+    "UPDATE reels SET planned_post_at = $1, status = 'scheduled' WHERE id = $2",
+    [plannedAt.toISOString(), id]
+  );
+  await touch(id);
+}
+
+export async function setPosted(id: number, postedUrl: string): Promise<void> {
+  const pool = await getPool();
+  await pool.query(
+    "UPDATE reels SET posted_url = $1, posted_at = now(), status = 'posted' WHERE id = $2",
+    [postedUrl, id]
+  );
   await touch(id);
 }
 

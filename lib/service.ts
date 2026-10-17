@@ -9,6 +9,8 @@ import { getPool } from "./db";
 import { listAccounts, markScanned } from "./accounts";
 import { listHashtags, markHashtagScanned } from "./hashtags";
 import {
+  setSchedule,
+  setPosted,
   insertReel,
   getReel,
   findByShortcode,
@@ -699,6 +701,42 @@ export interface ManualAddResult {
   alreadyExisted: boolean;
 }
 
+// --- Schedule and posted (launch content OS, 2026-10-18) ---
+// Bookkeeping only: the app never posts. The operator (or Hermes, on the
+// operator's word) records the planned time and, once the operator has
+// published by hand, the post's URL. Posted is not Archive — archiveReel
+// deletes files, these never touch the disk.
+const SCHEDULABLE: Reel["status"][] = ["captioned", "scheduled"];
+
+export async function scheduleItem(reelId: number, plannedAt: string): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (!SCHEDULABLE.includes(reel.status)) {
+    throw new Error(`Only a finished (Subtitled) or already scheduled item can be scheduled; reel ${reelId} is "${reel.status}".`);
+  }
+  const at = new Date(plannedAt);
+  if (Number.isNaN(at.getTime())) throw new Error(`Not a date-time: ${plannedAt}`);
+  await setSchedule(reelId, at);
+  return (await getReel(reelId))!;
+}
+
+export async function markPosted(reelId: number, postedUrl: string): Promise<Reel> {
+  const reel = await getReel(reelId);
+  if (!reel) throw new Error(`Reel ${reelId} not found`);
+  if (!SCHEDULABLE.includes(reel.status)) {
+    throw new Error(`Only a finished (Subtitled) or scheduled item can be marked posted; reel ${reelId} is "${reel.status}".`);
+  }
+  let url: URL;
+  try {
+    url = new URL(postedUrl.trim());
+  } catch {
+    throw new Error(`Not a URL: ${postedUrl}`);
+  }
+  if (url.protocol !== "https:") throw new Error("posted_url must be an https link to the live post.");
+  await setPosted(reelId, url.toString());
+  return (await getReel(reelId))!;
+}
+
 // --- Original items (launch content OS, 2026-10-18) ---
 // A reel with no scraped source (an app demo, a hook-bank item). It skips
 // Scraped and enters at Script with its draft script as the transcript, so
@@ -770,6 +808,9 @@ export async function addManualReel(
         previous_status: null,
         thumbnail_url: scraped?.thumbnailUrl ?? null,
         hook: null,
+        planned_post_at: null,
+        posted_url: null,
+        posted_at: null,
         created_at: "",
         updated_at: "",
       },

@@ -75,6 +75,9 @@ export type ReelStatus =
   | "approved" // script approved, voiceover stage
   | "video" // HeyGen video uploaded, awaiting subtitle burn
   | "captioned" // subtitles burned + metadata stripped — finished file
+  | "scheduled" // operator picked a post time (planned_post_at)
+  | "posted" // operator published it by hand (posted_url). Not "archived":
+  //          archive deletes the files, posting does not.
   | "archived"
   | "rejected";
 
@@ -162,6 +165,11 @@ export interface Reel {
   // Instagram's CDN URLs expire, so treat as best-effort — may 404.
   thumbnail_url: string | null;
   hook: Hook | null;
+  // Launch content OS (2026-10-18). The app never posts: these record what
+  // the operator planned and did.
+  planned_post_at: string | null;
+  posted_url: string | null;
+  posted_at: string | null;
   created_at: string;
   updated_at: string;
 }
