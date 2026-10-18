@@ -31,6 +31,8 @@ export const config = {
   // treg (every Instagram read, replaced Apify 2026-10-18; lib/treg.ts). The
   // app's own capped agent token, never a person's.
   tregToken: process.env.TREG_TOKEN ?? "",
+  // Only the test harness changes this (to its fake treg).
+  tregBaseUrl: process.env.TREG_BASE_URL ?? "https://treg.to",
   // Per routed call: the most treg may spend trying providers in turn.
   tregRouteMaxCostUsd: Number(process.env.TREG_ROUTE_MAX_COST_USD ?? 0.02),
   // Hard daily ceiling on recorded treg spend (provider_spend table).
@@ -196,6 +198,15 @@ export const config = {
   instagramAccessToken: process.env.INSTAGRAM_ACCESS_TOKEN ?? "",
   instagramBusinessId: process.env.INSTAGRAM_BUSINESS_ID ?? "",
   instagramApiVersion: process.env.INSTAGRAM_API_VERSION ?? "v21.0",
+  // Publishing Nuronomics posts (ticket 16; root CLAUDE.md "Instagram
+  // publishing for Nuronomics"). Graph calls go through treg to the team's
+  // own registered tool for the hifz account; the app holds no IG token.
+  instagramPublishTool: process.env.INSTAGRAM_PUBLISH_TREG_TOOL ?? "instagram",
+  instagramPublishUserId: process.env.INSTAGRAM_PUBLISH_USER_ID ?? "me",
+  instagramDailyPublishCap: intEnv("INSTAGRAM_DAILY_PUBLISH_CAP", 1),
+  // Container status polls: a hard cap, never an open loop.
+  instagramPublishPollMax: intEnv("INSTAGRAM_PUBLISH_POLL_MAX", 24),
+  instagramPublishPollMs: intEnv("INSTAGRAM_PUBLISH_POLL_MS", 5000),
   instagramVerifyToken: process.env.INSTAGRAM_VERIFY_TOKEN ?? "",
   instagramAppSecret: process.env.INSTAGRAM_APP_SECRET ?? "",
   // The one Instagram-scoped sender ID the bot will act on — every other

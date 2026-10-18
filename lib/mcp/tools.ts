@@ -44,6 +44,8 @@ import { downloadVideo } from "./download";
 import { uploadUrl } from "./uploadToken";
 import { BRANDS, parseBrand } from "../brands";
 import { hookSummary, listMetrics, recordMetrics } from "../metrics";
+import { publishToInstagram } from "../igPublish";
+import { getPool } from "../db";
 import {
   ENGAGEMENT_KINDS,
   ENGAGEMENT_PLATFORMS,
@@ -132,6 +134,7 @@ function allowedActions(reel: Reel): string[] {
       break;
     case "scheduled":
       a.push("get_media_links", "edit_reel", "schedule_item", "unschedule_item", "mark_posted", "move_back");
+      if (reel.brand === "nuronomics" && reel.kind !== "text") a.push("publish_to_instagram");
       break;
     case "posted":
       a.push("get_media_links", "mark_posted", "move_back", "archive_reel");
@@ -957,6 +960,52 @@ export function registerTools(server: McpServer): void {
       presentReel(
         await withAudit("schedule_item", "write", { reelId: id, args: { id, planned_post_at }, rationale }, () =>
           scheduleItem(id, planned_post_at)
+        )
+      )
+    )
+  );
+
+  server.registerTool(
+    "publish_to_instagram",
+    {
+      description:
+        "PUBLISHES a scheduled NURONOMICS reel, carousel or story to the hifz Instagram account through Instagram's official API (via treg), then records the live link as posted. " +
+        "Only after the operator approved THIS post on Telegram at or after its planned time: pass operator_confirmed=true and confirmation_note quoting their reply — refused otherwise, always. " +
+        `Refused for Cyrus, for anything not scheduled, before planned_post_at, and past the daily cap (INSTAGRAM_DAILY_PUBLISH_CAP). On failure the item stays scheduled: report the reason, do not retry; the operator posts it by hand. If the error says PUBLISHED, never publish again. Never sets the AI-content label: an item that needs it is posted by hand.`,
+      inputSchema: {
+        id: reelId,
+        rationale: z.string().min(1),
+        operator_confirmed: z.boolean(),
+        confirmation_note: z.string().min(1).describe("The operator's Telegram reply approving this post, quoted"),
+      },
+    },
+    safe(async ({ id, rationale, operator_confirmed, confirmation_note }) =>
+      presentReel(
+        await withAudit(
+          "publish_to_instagram",
+          "write",
+          { reelId: id, args: { id, operator_confirmed, confirmation_note }, rationale },
+          async () => {
+            if (!operator_confirmed || !confirmation_note.trim()) {
+              throw new Error(
+                `Publishing item ${id} needs the operator's approval of this post. Ask on Telegram, then re-call with operator_confirmed=true and confirmation_note quoting their reply.`
+              );
+            }
+            // Posts that went live today, including one whose link could
+            // not be read afterwards.
+            const pool = await getPool();
+            const { rows } = await pool.query<{ n: number }>(
+              `SELECT count(*)::int AS n FROM agent_actions
+                WHERE tool = 'publish_to_instagram' AND at >= date_trunc('day', now())
+                  AND (ok OR error LIKE 'PUBLISHED%')`
+            );
+            if (rows[0].n >= config.instagramDailyPublishCap) {
+              throw new Error(
+                `Daily Instagram publish cap reached (${rows[0].n}/${config.instagramDailyPublishCap}). Leave it scheduled; the operator can post by hand or wait until tomorrow.`
+              );
+            }
+            return publishToInstagram(id);
+          }
         )
       )
     )

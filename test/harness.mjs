@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import pg from "pg";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { FAKE_BASE, FAKE_TOKEN, startFakeTreg } from "./fake-treg.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const PORT = Number(process.env.TEST_PORT ?? 3990);
@@ -46,6 +47,7 @@ const testUrl = new URL(admin);
 testUrl.pathname = `/${DB_NAME}`;
 
 let server;
+let fake;
 let pool;
 // allowExitOnIdle: an idle pool must not keep a test file's process alive.
 const db = () => (pool ??= new pg.Pool({ connectionString: testUrl.toString(), allowExitOnIdle: true }));
@@ -62,6 +64,7 @@ async function withAdmin(fn) {
 
 export async function start() {
   await withAdmin((c) => c.query(`CREATE DATABASE ${DB_NAME}`));
+  fake = await startFakeTreg();
   server = spawn(path.join(ROOT, "node_modules/.bin/next"), ["dev", "-p", String(PORT)], {
     cwd: ROOT,
     detached: true,
@@ -76,7 +79,12 @@ export async function start() {
       // Present but empty: Next does not overwrite a set variable from .env.local.
       ANTHROPIC_API_KEY: "",
       ELEVENLABS_API_KEY: "",
-      TREG_TOKEN: "",
+      // treg is the fake at the boundary (test/fake-treg.mjs), never the real one.
+      TREG_BASE_URL: FAKE_BASE,
+      TREG_TOKEN: FAKE_TOKEN,
+      INSTAGRAM_DAILY_PUBLISH_CAP: "3",
+      INSTAGRAM_PUBLISH_POLL_MS: "10",
+      INSTAGRAM_PUBLISH_POLL_MAX: "3",
       APP_PASSWORD: "",
       REELS_OUTPUT_DIR: REELS_DIR,
       PUBLIC_BASE_URL: BASE,
@@ -108,6 +116,7 @@ export async function stop() {
       // already gone
     }
   }
+  fake?.close();
   await pool?.end();
   await withAdmin((c) => c.query(`DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE)`));
   fs.rmSync(REELS_DIR, { recursive: true, force: true });

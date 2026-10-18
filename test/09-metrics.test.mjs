@@ -53,13 +53,13 @@ test("get_hook_summary: per-hook counts, medians of the latest reading, totals, 
   assert.equal(typeof data.month_to_date.agent_paid_calls, "number");
 });
 
-test("the weekly metrics cron needs the secret and spends nothing without a treg token", async () => {
+test("the weekly metrics cron needs the secret and spends nothing when treg has no answer", async () => {
   assert.equal((await fetch(`${BASE}/api/cron/metrics`, { method: "POST" })).status, 401);
   const before = (await sql("SELECT count(*)::int AS n FROM provider_spend"))[0].n;
   const res = await fetch(`${BASE}/api/cron/metrics`, { method: "POST", headers: { Authorization: "Bearer test-cron-secret" } });
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.read, 0);
-  assert.ok(body.failed >= 3, "every posted Instagram link fails without TREG_TOKEN");
+  assert.ok(body.failed >= 3, "the fake treg answers no metrics read");
   assert.equal((await sql("SELECT count(*)::int AS n FROM provider_spend"))[0].n, before);
 });

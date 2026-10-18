@@ -63,9 +63,16 @@ async function recordSpend(endpoint: string, res: Response): Promise<void> {
 // with the SAME Idempotency-Key, so an answer lost on the way back is
 // replayed for free instead of billed twice; a 4xx is never retried (it is
 // our parameters, and retrying burns money).
-async function tregCall(
+export async function tregCall(
   endpoint: string,
-  init: { body?: Row; query?: Record<string, string>; headers?: Record<string, string> }
+  init: {
+    body?: Row;
+    query?: Record<string, string>;
+    headers?: Record<string, string>;
+    // Override TREG_MAX_RETRIES; 0 for a call that must never repeat
+    // (publishing a post).
+    retries?: number;
+  }
 ): Promise<Row> {
   if (!hasTreg()) {
     throw new Error("TREG_TOKEN is not set. Add the app's capped treg agent token to .env.local.");
@@ -77,7 +84,7 @@ async function tregCall(
     );
   }
 
-  const url = new URL(`https://treg.to/call/${endpoint}`);
+  const url = new URL(`${config.tregBaseUrl.replace(/\/$/, "")}/call/${endpoint}`);
   for (const [k, v] of Object.entries(init.query ?? {})) url.searchParams.set(k, v);
   const headers: Record<string, string> = {
     "X-Treg-Token": config.tregToken,
@@ -87,7 +94,7 @@ async function tregCall(
   };
   if (init.body) headers["content-type"] = "application/json";
 
-  const attempts = Math.max(1, config.tregMaxRetries + 1);
+  const attempts = Math.max(1, (init.retries ?? config.tregMaxRetries) + 1);
   let lastError = "";
   for (let attempt = 0; attempt < attempts; attempt++) {
     let res: Response;

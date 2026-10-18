@@ -29,9 +29,11 @@ test("tools/list answers and exposes no posting or sending tool", async () => {
   }
   // Recording what the operator did (mark_posted, mark_sent) is fine; a tool
   // that publishes or sends is not.
-  // send_to_video is a board move (Audio -> Video), not a send.
+  // send_to_video is a board move (Audio -> Video), not a send. The one
+  // tool that posts is publish_to_instagram (root CLAUDE.md, Nuronomics
+  // Instagram only, behind the operator's quoted approval).
   const doers = names.filter((n) => /publish(?!_pack)|^post_|^send_(?!to_video$)|_send$/.test(n));
-  assert.deepEqual(doers, []);
+  assert.deepEqual(doers, ["publish_to_instagram"]);
 });
 
 const approveIds = [];
