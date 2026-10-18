@@ -89,7 +89,7 @@ export async function start() {
       REELS_OUTPUT_DIR: REELS_DIR,
       PUBLIC_BASE_URL: BASE,
       // A tiny cap on one platform so the cap refusal is testable.
-      ENGAGEMENT_DAILY_CAPS: "x=2",
+      ENGAGEMENT_DAILY_CAPS: "x:comment=2,reddit:comment=20",
       CRON_SECRET: "test-cron-secret",
     },
   });

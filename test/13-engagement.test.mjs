@@ -66,5 +66,9 @@ test("the per-platform daily cap refuses past its limit", async () => {
   assert.equal((await draft(x)).ok, true);
   const third = await draft(x);
   assert.equal(third.ok, false);
-  assert.match(third.error, /Daily x draft cap reached \(2\/2\)/);
+  assert.match(third.error, /Daily x comment draft cap reached \(2\/2\)/);
+  // DMs are their own bucket; X DMs were not researched, so the cap is 0.
+  const dm = await draft({ ...x, kind: "dm" });
+  assert.equal(dm.ok, false);
+  assert.match(dm.error, /Daily x dm draft cap reached \(0\/0\)/);
 });

@@ -11,7 +11,7 @@ import type { Brand } from "./types";
 
 export type EngagementKind = "reply" | "comment" | "dm";
 export const ENGAGEMENT_KINDS: EngagementKind[] = ["reply", "comment", "dm"];
-export const ENGAGEMENT_PLATFORMS = ["reddit", "instagram", "tiktok", "youtube", "x", "other"] as const;
+export const ENGAGEMENT_PLATFORMS = ["reddit", "instagram", "tiktok", "youtube", "facebook", "x", "other"] as const;
 export type EngagementPlatform = (typeof ENGAGEMENT_PLATFORMS)[number];
 export type EngagementStatus = "draft" | "approved" | "sent" | "dropped" | "expired";
 
@@ -61,16 +61,31 @@ export async function listEngagement(filter: { brand?: Brand; status?: Engagemen
   return rows;
 }
 
-// Per-platform daily draft cap. Defaults are a placeholder until the
-// platform-rules research (self-hifdh#206) lands; override with
-// ENGAGEMENT_DAILY_CAPS="reddit=7,instagram=10".
-function capFor(platform: EngagementPlatform): number {
-  const defaults: Record<EngagementPlatform, number> = { reddit: 7, instagram: 10, tiktok: 5, youtube: 5, x: 5, other: 5 };
+// Daily draft caps per platform and bucket (comments and replies count
+// together; DMs separately), from the platform-rules research
+// (self-hifdh#225, reviewed 2026-10-18). Instagram DMs are replies to
+// inbound DMs only; Reddit is r/Hifdh only (3-5 a day, the low end here);
+// Facebook means groups. The TikTok DM and Facebook figures rest on
+// reasoning only. X and other were not researched. A 0 means no drafts.
+// Override with ENGAGEMENT_DAILY_CAPS="instagram:dm=10,reddit:comment=5".
+type Bucket = "comment" | "dm";
+const CAP_DEFAULTS: Record<EngagementPlatform, Record<Bucket, number>> = {
+  instagram: { comment: 15, dm: 10 },
+  tiktok: { comment: 15, dm: 5 },
+  youtube: { comment: 15, dm: 0 },
+  reddit: { comment: 3, dm: 0 },
+  facebook: { comment: 5, dm: 0 },
+  x: { comment: 5, dm: 0 },
+  other: { comment: 5, dm: 0 },
+};
+const bucketOf = (kind: EngagementKind): Bucket => (kind === "dm" ? "dm" : "comment");
+
+function capFor(platform: EngagementPlatform, bucket: Bucket): number {
   for (const pair of config.engagementDailyCaps.split(",")) {
     const [k, v] = pair.split("=").map((s) => s.trim());
-    if (k === platform && Number.isInteger(Number(v))) return Number(v);
+    if (k === `${platform}:${bucket}` && Number.isInteger(Number(v))) return Number(v);
   }
-  return defaults[platform];
+  return CAP_DEFAULTS[platform][bucket];
 }
 
 export async function draftEngagement(input: {
@@ -85,14 +100,17 @@ export async function draftEngagement(input: {
 }): Promise<Engagement> {
   // ponytail: count-then-insert, no lock; two concurrent drafts could both pass. One agent drafts at a time today.
   const pool = await getPool();
-  const cap = capFor(input.platform);
+  const bucket = bucketOf(input.kind);
+  const cap = capFor(input.platform, bucket);
   const { rows } = await pool.query<{ n: number }>(
-    "SELECT count(*)::int AS n FROM engagement WHERE platform = $1 AND brand = $2 AND created_at >= date_trunc('day', now())",
-    [input.platform, input.brand]
+    `SELECT count(*)::int AS n FROM engagement
+      WHERE platform = $1 AND brand = $2 AND created_at >= date_trunc('day', now())
+        AND (kind = 'dm') = $3`,
+    [input.platform, input.brand, bucket === "dm"]
   );
   if (rows[0].n >= cap) {
     throw new Error(
-      `Daily ${input.platform} draft cap reached (${rows[0].n}/${cap}). Do not draft more today; tell the operator.`
+      `Daily ${input.platform} ${bucket} draft cap reached (${rows[0].n}/${cap}). Do not draft more today; tell the operator.`
     );
   }
   const ins = await pool.query<{ id: number }>(

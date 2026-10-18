@@ -230,7 +230,7 @@ export const config = {
   // it never queues or retries.
   mcpDailyPaidCallCap: intEnv("MCP_DAILY_PAID_CALL_CAP", 25),
   mcpDailyScanCap: intEnv("MCP_DAILY_SCAN_CAP", 2),
-  // Per-platform daily engagement-draft caps, "reddit=7,instagram=10".
+  // Per-platform daily engagement-draft caps, "instagram:dm=10,reddit:comment=5".
   // Unlisted platforms use the defaults in lib/engagement.ts.
   engagementDailyCaps: process.env.ENGAGEMENT_DAILY_CAPS ?? "",
 } as const;
