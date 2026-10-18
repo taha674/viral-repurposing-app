@@ -88,6 +88,7 @@ export async function start() {
       TREG_BASE_URL: FAKE_BASE,
       TREG_TOKEN: FAKE_TOKEN,
       INSTAGRAM_DAILY_PUBLISH_CAP: "3",
+      INSTAGRAM_PUBLISH_TREG_TOOL: "instagram-2",
       INSTAGRAM_PUBLISH_POLL_MS: "10",
       INSTAGRAM_PUBLISH_POLL_MAX: "3",
       APP_PASSWORD: "",

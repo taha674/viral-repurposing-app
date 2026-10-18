@@ -16,7 +16,7 @@ export const FAKE_BASE = `http://localhost:${FAKE_PORT}`;
 export const FAKE_TOKEN = "fake-treg-token";
 
 let calls = [];
-let mode = "ok"; // ok | error (container ERROR) | stuck (never FINISHED) | nolink (publish ok, no permalink)
+let mode = "ok"; // ok | error (container ERROR) | stuck (never FINISHED) | nolink (publish ok, no permalink) | wrongaccount
 let n = 0;
 
 function send(res, status, body) {
@@ -62,9 +62,10 @@ export function startFakeTreg() {
     const body = raw ? JSON.parse(raw) : null;
     calls.push({ method: req.method, path, query: Object.fromEntries(url.searchParams), body });
 
-    const graph = path.match(/^instagram\/v[\d.]+\/(.+)$/);
+    const graph = path.match(/^instagram-2\/(.+)$/);
     if (!graph) return send(res, 404, { detail: "not faked" });
     const [, rest] = graph;
+    if (req.method === "GET" && rest === "me") return send(res, 200, { username: mode === "wrongaccount" ? "thecyrusamin" : "surahwise", id: "1" });
     if (req.method === "POST" && rest === "me/media") return send(res, 200, { id: `c${++n}` });
     if (req.method === "POST" && rest === "me/media_publish") return send(res, 200, { id: `m${++n}` });
     if (req.method === "GET" && /^c\d+$/.test(rest)) {

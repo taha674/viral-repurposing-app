@@ -4,6 +4,7 @@ import { markPosted } from "./service";
 import { tregCall } from "./treg";
 import { mcpMediaUrl } from "./mcp/mediaToken";
 import type { Reel } from "./types";
+import { igPublishTool, checkPublishAccount } from "./igTool";
 
 // Publishing a Nuronomics post to Instagram (ticket 16). Root CLAUDE.md,
 // "Instagram publishing for Nuronomics through the official API": Nuronomics
@@ -22,8 +23,10 @@ import type { Reel } from "./types";
 
 type Row = Record<string, unknown>;
 
+// The treg tool's base URL already carries the Graph version
+// (https://graph.instagram.com/v25.0), so paths start after it: `<tool>/me`.
 async function graph(method: "GET" | "POST", path: string, params: Record<string, string>, retries?: number): Promise<Row> {
-  const endpoint = `${config.instagramPublishTool}/${config.instagramApiVersion}/${path}`;
+  const endpoint = `${igPublishTool(config.instagramPublishTool)}/${path}`;
   const res =
     method === "POST"
       ? await tregCall(endpoint, { body: params, retries })
@@ -74,6 +77,9 @@ export async function publishToInstagram(reelId: number): Promise<Reel> {
   if (reel.kind === "carousel" ? !reel.slide_paths?.length : reel.captions_status !== "success" || !reel.captions_video_path) {
     throw new Error("The item's finished, metadata-stripped file is missing.");
   }
+
+  // Preflight: the tool must be connected to the Nuronomics account.
+  checkPublishAccount(String((await graph("GET", "me", { fields: "username" })).username ?? ""), config.instagramPublishUsername);
 
   let containerId: string;
   if (reel.kind === "reel") {

@@ -208,7 +208,10 @@ export const config = {
   // Publishing Nuronomics posts (ticket 16; root CLAUDE.md "Instagram
   // publishing for Nuronomics"). Graph calls go through treg to the team's
   // own registered tool for the hifz account; the app holds no IG token.
-  instagramPublishTool: process.env.INSTAGRAM_PUBLISH_TREG_TOOL ?? "instagram",
+  // No default (lib/igTool.ts): on treg `instagram` is Cyrus's account.
+  instagramPublishTool: process.env.INSTAGRAM_PUBLISH_TREG_TOOL ?? "",
+  // The account the tool must be connected to; checked before every publish.
+  instagramPublishUsername: process.env.INSTAGRAM_PUBLISH_USERNAME ?? "surahwise",
   instagramPublishUserId: process.env.INSTAGRAM_PUBLISH_USER_ID ?? "me",
   instagramDailyPublishCap: intEnv("INSTAGRAM_DAILY_PUBLISH_CAP", 1),
   // Container status polls: a hard cap, never an open loop.

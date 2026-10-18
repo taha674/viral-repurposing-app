@@ -3,7 +3,7 @@
 // 3 a day so all three kinds can publish before the cap refusal.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { connect, call, audits, original, forceStatus } from "./harness.mjs";
+import { connect, call, audits, original, forceStatus, sql } from "./harness.mjs";
 import { FAKE_BASE } from "./fake-treg.mjs";
 
 let mcp;
@@ -114,4 +114,27 @@ test("the daily cap refuses once today's live posts reach it", async () => {
   assert.equal(r.ok, false);
   assert.match(r.error, /Daily Instagram publish cap reached \(3\/3\)/);
   assert.deepEqual(await fakeCalls(), []);
+});
+
+test("no publish tool configured means no publish: the tool name has no default", async () => {
+  const { igPublishTool, checkPublishAccount } = await import("../lib/igTool.ts");
+  assert.throws(() => igPublishTool(""), /INSTAGRAM_PUBLISH_TREG_TOOL is not set/);
+  assert.throws(() => igPublishTool("  "), /not set/);
+  assert.equal(igPublishTool("instagram-2"), "instagram-2");
+  assert.throws(() => checkPublishAccount("thecyrusamin", "surahwise"), /connected to @thecyrusamin, not @surahwise/);
+  assert.doesNotThrow(() => checkPublishAccount("SurahWise", "surahwise"));
+});
+
+test("a tool connected to the wrong account is refused before anything is created", async () => {
+  // The cap (3) is spent by now, so check the preflight on its own path:
+  // the refusal must come from the account check, not the cap.
+  await sql("DELETE FROM agent_actions WHERE tool = 'publish_to_instagram' AND ok");
+  await fakeReset("wrongaccount");
+  const id = await scheduledReel();
+  const r = await call(mcp, "publish_to_instagram", { id, ...QUOTE });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /connected to @thecyrusamin, not @surahwise/);
+  const calls = await fakeCalls();
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ["GET instagram-2/me"]);
+  assert.equal((await call(mcp, "get_reel", { id })).data.status, "scheduled");
 });
