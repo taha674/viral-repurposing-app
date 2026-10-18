@@ -4,6 +4,11 @@
 // publish flow makes through the team's own tool, records every call, and
 // answers 404 to anything else (scans, metrics), which those paths treat as
 // a failed read. Tests steer it through /__fake/*.
+//
+// It also stands in for the Claude endpoint (ANTHROPIC_BASE_URL points here
+// too, with an OpenRouter-style ANTHROPIC_AUTH_TOKEN): POST /v1/messages
+// records the auth headers and answers a fixed adaptation, so the auth path
+// is tested with no network call and nothing billed.
 import http from "node:http";
 
 export const FAKE_PORT = Number(process.env.FAKE_TREG_PORT ?? 3991);
@@ -25,6 +30,27 @@ export function startFakeTreg() {
     let raw = "";
     for await (const c of req) raw += c;
     if (url.pathname === "/__fake/calls") return send(res, 200, calls);
+    if (url.pathname === "/v1/messages") {
+      calls.push({
+        method: req.method,
+        path: "claude:/v1/messages",
+        auth: req.headers.authorization ?? null,
+        xApiKey: req.headers["x-api-key"] ?? null,
+        body: raw ? JSON.parse(raw) : null,
+      });
+      const adaptation = {
+        analysis: { hook: "h", reframe: "r", mechanism: "m", philosophical_close: "p", cta: "c", top_psychological_triggers: [] },
+        adapted_script: "Faked adaptation.",
+        red_line_flag: "none",
+        red_line_reason: "",
+        edits_made: [],
+      };
+      return send(res, 200, {
+        id: "msg_fake", type: "message", role: "assistant", model: "fake",
+        content: [{ type: "text", text: JSON.stringify(adaptation) }],
+        stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    }
     if (url.pathname === "/__fake/reset") {
       calls = [];
       mode = JSON.parse(raw || "{}").mode ?? "ok";

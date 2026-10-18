@@ -44,6 +44,13 @@ export const config = {
   // Gemini 2026-10-18. Pinned model id: an alias that silently upgrades under
   // a compliance-sensitive prompt is a liability.
   anthropicKey: process.env.ANTHROPIC_API_KEY ?? "",
+  // TEMPORARY until the Anthropic credits arrive (Thu 22 Oct 2026): run the
+  // Claude calls through OpenRouter's Anthropic-compatible endpoint with
+  // ANTHROPIC_BASE_URL=https://openrouter.ai/api, ANTHROPIC_AUTH_TOKEN=<key>,
+  // ANTHROPIC_API_KEY empty, CLAUDE_MODEL=anthropic/claude-opus-5.5. Unset
+  // them to go back to Anthropic direct. See lib/claudeAuth.ts.
+  anthropicAuthToken: process.env.ANTHROPIC_AUTH_TOKEN ?? "",
+  anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
   claudeModel: process.env.CLAUDE_MODEL ?? "claude-opus-5-5",
   claudeEffort: (process.env.CLAUDE_EFFORT ?? "low") as "low" | "medium" | "high",
 
@@ -252,7 +259,7 @@ export function hasTreg(): boolean {
 }
 
 export function hasClaude(): boolean {
-  return config.anthropicKey.trim().length > 0;
+  return config.anthropicKey.trim().length > 0 || config.anthropicAuthToken.trim().length > 0;
 }
 
 export function hasElevenLabs(): boolean {

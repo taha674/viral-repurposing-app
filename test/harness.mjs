@@ -77,7 +77,12 @@ export async function start() {
       MCP_DAILY_PAID_CALL_CAP: "0",
       MCP_DAILY_SCAN_CAP: "0",
       // Present but empty: Next does not overwrite a set variable from .env.local.
+      // Claude goes to the fake too, the OpenRouter way: bearer token, no
+      // x-api-key (test 17). Nothing reaches Anthropic or OpenRouter.
       ANTHROPIC_API_KEY: "",
+      ANTHROPIC_AUTH_TOKEN: "fake-openrouter-token",
+      ANTHROPIC_BASE_URL: FAKE_BASE,
+      CLAUDE_MODEL: "anthropic/claude-opus-5.5",
       ELEVENLABS_API_KEY: "",
       // treg is the fake at the boundary (test/fake-treg.mjs), never the real one.
       TREG_BASE_URL: FAKE_BASE,

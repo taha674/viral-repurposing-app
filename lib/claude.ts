@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
 import { config, hasClaude } from "./config";
+import { claudeAuth } from "./claudeAuth";
 import type { Brand } from "./types";
 import {
   getEffectiveSystemPrompt,
@@ -27,9 +28,12 @@ import {
 // default low) is the closest match to the old thinking-off Gemini calls.
 // max_tokens counts thinking too, so the token knobs sit well above the
 // visible output size.
+// Anthropic direct by default; OpenRouter while ANTHROPIC_AUTH_TOKEN and
+// ANTHROPIC_BASE_URL are set (temporary, see lib/config.ts).
 function client(): Anthropic {
   return new Anthropic({
-    apiKey: config.anthropicKey,
+    ...claudeAuth({ apiKey: config.anthropicKey, authToken: config.anthropicAuthToken }),
+    baseURL: config.anthropicBaseUrl,
     maxRetries: config.claudeMaxRetries,
   });
 }
@@ -50,7 +54,7 @@ async function callStructured<T>(opts: {
 }): Promise<T> {
   if (!hasClaude()) {
     throw new Error(
-      `ANTHROPIC_API_KEY is not set. Add it to .env.local to run ${opts.label.toLowerCase()}.`
+      `Neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN is set. Add one to .env.local to run ${opts.label.toLowerCase()}.`
     );
   }
   let response;
@@ -258,7 +262,7 @@ export async function classifyFormat(
 ): Promise<FormatClassification> {
   if (!hasClaude()) {
     throw new Error(
-      "ANTHROPIC_API_KEY is not set. Add it to .env.local to use hashtag discovery."
+      "Neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN is set. Add one to .env.local to use hashtag discovery."
     );
   }
   const imgRes = await fetch(thumbnailUrl);
