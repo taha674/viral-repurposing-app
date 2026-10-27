@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { listReelSummaries } from "@/lib/reels";
 import { addManualReel } from "@/lib/service";
-import { config } from "@/lib/config";
+import { hashtagViewThresholdFor } from "@/lib/config";
 import { parseBrand } from "@/lib/brands";
 
 function formatThreshold(n: number): string {
@@ -35,14 +35,15 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const result = await addManualReel(url, force, parseBrand(body.brand));
+    const brand = parseBrand(body.brand);
+    const result = await addManualReel(url, force, brand);
     if (!result.qualifies && !result.forced) {
       return NextResponse.json(
         {
           qualifies: false,
           views: result.reel.views,
           message: `Below the ${formatThreshold(
-            config.viewThreshold
+            hashtagViewThresholdFor(brand)
           )}-view threshold. Re-submit with force=true to track it anyway.`,
         },
         { status: 200 }

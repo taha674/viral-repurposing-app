@@ -62,6 +62,19 @@ export function startFakeTreg() {
     const body = raw ? JSON.parse(raw) : null;
     calls.push({ method: req.method, path, query: Object.fromEntries(url.searchParams), body });
 
+    // Routed post detail: the play count only in `raw`, as tikhub answers.
+    // The shortcode carries it: V60000 -> 60000 plays.
+    // Any other shortcode gets the 404 below, which metrics treats as no answer.
+    const detailCode = path === "treg.instagram.post.detail" && String(body?.url).match(/\/reel\/(V\d+)\//)?.[1];
+    if (detailCode) {
+      const code = detailCode;
+      return send(res, 200, {
+        output: { shortcode: code, caption: "fake caption" },
+        raw: { data: { shortcode: code, video_play_count: Number(code.slice(1)) } },
+        _treg: { served_by: "fake", tried: [] },
+      });
+    }
+
     const graph = path.match(/^instagram-2\/(.+)$/);
     if (!graph) return send(res, 404, { detail: "not faked" });
     const [, rest] = graph;

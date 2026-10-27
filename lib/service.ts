@@ -1002,7 +1002,7 @@ export async function addManualReel(
   // reel that will be saved.
   const scraped = await fetchReel(url);
   const views = scraped?.views ?? null;
-  const qualifies = views !== null && views >= config.viewThreshold;
+  const qualifies = views !== null && views >= hashtagViewThresholdFor(brand);
 
   if (!qualifies && !force) {
     // Don't persist below-threshold reels unless the operator forces it.

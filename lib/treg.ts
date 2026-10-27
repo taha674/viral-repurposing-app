@@ -129,13 +129,13 @@ async function routed(
   endpoint: string,
   body: Row,
   headers?: Record<string, string>
-): Promise<{ output: Row; servedBy: string }> {
+): Promise<{ output: Row; raw: Row; servedBy: string }> {
   const res = await tregCall(endpoint, { body, headers });
   const meta = (res._treg ?? {}) as Row;
   const servedBy = String(meta.served_by ?? "unknown");
   const tried = Array.isArray(meta.tried) ? meta.tried.length : 0;
   if (tried > 1) console.log(`[treg] ${endpoint}: served by ${servedBy} after trying ${tried} providers`);
-  return { output: (res.output ?? {}) as Row, servedBy };
+  return { output: (res.output ?? {}) as Row, raw: (res.raw ?? {}) as Row, servedBy };
 }
 
 // --- mapping provider-native rows ------------------------------------------
@@ -237,9 +237,14 @@ export async function searchReels(query: string): Promise<ScrapedReel[]> {
 // anyapi is excluded: it is the cheapest child but its default source carries
 // no play count, and the view count is the point of most of these lookups.
 export async function fetchReel(url: string): Promise<ScrapedReel | null> {
-  const { output } = await routed("treg.instagram.post.detail", { url }, { "X-Treg-Route-Exclude": "anyapi" });
+  const { output, raw } = await routed("treg.instagram.post.detail", { url }, { "X-Treg-Route-Exclude": "anyapi" });
   const row = obj(output.post) ?? obj(output.data) ?? output;
-  return mapRow(row);
+  const reel = mapRow(row);
+  // The routed `output` can omit the play count that the provider's own
+  // `raw` body carries (tikhub: raw.data.video_play_count), and a reel
+  // without views never meets a view floor.
+  if (reel && reel.views === null) reel.views = mapRow(obj(raw.data) ?? raw)?.views ?? null;
+  return reel;
 }
 
 // The reel's speech as text (ScrapeCreators speech-to-text). Null when the
