@@ -4,8 +4,7 @@ import { config } from "../config";
 // Short-lived signed token for /api/mcp/upload/[token] — lets the agent
 // `curl -F video=@file` a finished render straight into one reel without the
 // bearer token ever leaving the MCP channel. Keyed off MCP_API_TOKEN, so
-// rotating it invalidates outstanding links. Same shape as signMediaToken in
-// lib/instagram.ts, scoped to one reel + expiry.
+// rotating it invalidates outstanding links. Scoped to one reel + expiry.
 const TTL_MS = 15 * 60 * 1000;
 
 function mac(payload: string): string {

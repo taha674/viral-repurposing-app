@@ -200,11 +200,6 @@ export const config = {
   // not a reason to delete anything else.
   volumePurgeThresholdMb: intEnv("VOLUME_PURGE_THRESHOLD_MB", 500),
 
-  // Instagram DM bot (2026-09-13) — chat control layer, additive to the web
-  // UI. See lib/instagram.ts / lib/instagramCommands.ts.
-  instagramAccessToken: process.env.INSTAGRAM_ACCESS_TOKEN ?? "",
-  instagramBusinessId: process.env.INSTAGRAM_BUSINESS_ID ?? "",
-  instagramApiVersion: process.env.INSTAGRAM_API_VERSION ?? "v21.0",
   // Publishing Nuronomics posts (ticket 16; root CLAUDE.md "Instagram
   // publishing for Nuronomics"). Graph calls go through treg to the team's
   // own registered tool for the hifz account; the app holds no IG token.
@@ -217,18 +212,6 @@ export const config = {
   // Container status polls: a hard cap, never an open loop.
   instagramPublishPollMax: intEnv("INSTAGRAM_PUBLISH_POLL_MAX", 24),
   instagramPublishPollMs: intEnv("INSTAGRAM_PUBLISH_POLL_MS", 5000),
-  instagramVerifyToken: process.env.INSTAGRAM_VERIFY_TOKEN ?? "",
-  instagramAppSecret: process.env.INSTAGRAM_APP_SECRET ?? "",
-  // The one Instagram-scoped sender ID the bot will act on — every other
-  // sender is dropped (see the webhook route). Single-user tool by design.
-  instagramOwnerIgsid: process.env.INSTAGRAM_OWNER_IGSID ?? "",
-  // Signs the short-lived tokens in /api/instagram/media/[token] links —
-  // separate secret from the app secret so it can be rotated independently.
-  instagramMediaTokenSecret: process.env.INSTAGRAM_MEDIA_TOKEN_SECRET ?? "",
-  // Hard cap on retrying a failed Instagram SEND (message delivery only —
-  // never the underlying pipeline call that triggered the message).
-  instagramMaxRetries: intEnv("INSTAGRAM_MAX_RETRIES", 1),
-  instagramTimeoutMs: intEnv("INSTAGRAM_TIMEOUT_MS", 15_000),
   // Public origin of this deployment (e.g. the Railway URL), used to build
   // the signed media links Meta's servers fetch directly.
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? "",
@@ -269,17 +252,6 @@ export function hasElevenLabs(): boolean {
   return (
     config.elevenlabsKey.trim().length > 0 &&
     config.elevenlabsVoiceId.trim().length > 0
-  );
-}
-
-export function hasInstagram(): boolean {
-  return (
-    config.instagramAccessToken.trim().length > 0 &&
-    config.instagramBusinessId.trim().length > 0 &&
-    config.instagramAppSecret.trim().length > 0 &&
-    config.instagramVerifyToken.trim().length > 0 &&
-    config.instagramOwnerIgsid.trim().length > 0 &&
-    config.instagramMediaTokenSecret.trim().length > 0
   );
 }
 
