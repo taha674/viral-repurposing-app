@@ -285,3 +285,65 @@ export async function classifyFormat(
     tokenEnvVar: "(fixed 2000 in lib/claude.ts)",
   });
 }
+
+// --- Scraped carousels (Nuronomics) ---
+
+// A hard bound on the images sent per carousel: slides past this are ignored.
+const MAX_CAROUSEL_SLIDES = 10;
+
+const CAROUSEL_READ_PROMPT = (caption: string | null) => `These are the slides, in order, of a viral Instagram carousel found under a Quran-memorisation (hifz) hashtag or on a hifz account. Its caption is below.
+
+Do two things.
+
+1. Decide "matches": true only if the carousel gives a tip, a method, a story or a reminder about memorising, revising or studying the Quran (hifz/hifdh), something worth adapting into our own carousel. Not a match: course, class or event announcements, giveaways, product or app promos, quizzes and guessing games, results or certificates, general Islamic content that is not about Quran study, and slides that carry no text worth adapting.
+
+2. Give "text": the text on the slides as printed, one line per slide in order, as "1. ...", "2. ...". Keep each slide's own language and wording; do not translate, summarise or add anything. A slide with no text reads "N. (image only)". Leave "text" empty when "matches" is false.
+
+Caption:
+${caption?.trim() || "(none)"}
+
+Return your answer as the required JSON.`;
+
+const CAROUSEL_READ_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    matches: { type: "boolean" },
+    reason: { type: "string" },
+    text: { type: "string" },
+  },
+  required: ["matches", "reason", "text"],
+};
+
+export interface CarouselRead {
+  matches: boolean;
+  reason: string;
+  text: string;
+}
+
+// One vision call that both filters a scraped carousel for hifz and reads its
+// slide text, so the slides are paid for once. A failure (fetch or model) is
+// caught by the caller (lib/service.ts#saveCarousels) and skips that carousel.
+export async function readHifzCarousel(slideUrls: string[], caption: string | null): Promise<CarouselRead> {
+  if (!hasClaude()) {
+    throw new Error(
+      "Neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN is set. Add one to .env.local to read scraped carousels."
+    );
+  }
+  const urls = slideUrls.slice(0, MAX_CAROUSEL_SLIDES);
+  const images: ContentBlockParam[] = await Promise.all(
+    urls.map(async (url) => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed to fetch slide (${res.status}): ${url}`);
+      const data = Buffer.from(await res.arrayBuffer()).toString("base64");
+      return { type: "image", source: { type: "base64", media_type: guessImageMimeType(url), data } };
+    })
+  );
+  return callStructured<CarouselRead>({
+    content: [...images, { type: "text", text: CAROUSEL_READ_PROMPT(caption) }],
+    schema: CAROUSEL_READ_SCHEMA,
+    maxTokens: 4000,
+    label: "Carousel reading",
+    tokenEnvVar: "(fixed 4000 in lib/claude.ts)",
+  });
+}

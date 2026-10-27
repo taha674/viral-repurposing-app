@@ -89,6 +89,11 @@ export const config = {
   viewThreshold: intEnv("VIEW_THRESHOLD", 500_000),
   // Hashtag-scan floor for Nuronomics: hifz reels rarely reach Cyrus's 500k.
   viewThresholdNuronomics: intEnv("VIEW_THRESHOLD_NURONOMICS", 50_000),
+  // Scraped carousels (Nuronomics only) carry no view count, so likes stand in
+  // for the view floor. At most this many per source are read by Claude (a paid
+  // vision call each) per scan, best-liked first: a hard cap, never open-ended.
+  carouselLikesFloorNuronomics: intEnv("CAROUSEL_LIKES_FLOOR_NURONOMICS", 500),
+  carouselReadsPerSource: intEnv("CAROUSEL_READS_PER_SOURCE", 4),
   // Posts pulled per account per scan sweep — high enough to approximate
   // "the account's available history" rather than just its most-recent
   // handful, while still bounded (project rule: no unbounded pull against a

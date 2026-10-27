@@ -40,6 +40,7 @@ called by a Railway cron service — see `../tasks.md` for the schedule.
 - **Tracked accounts** (`/accounts`): add / pause / remove; seeded with the 12 IG handles.
 - **Manual add** (`/`): paste an IG reel URL; confirms ≥1M views, or **Force-add** below threshold.
 - **Weekly scan**: "Run scan now" sweeps active accounts for new 1M+ reels (transcript off), then pulls transcripts for qualifiers. Per-account errors are logged, not fatal. In production a Railway cron service also triggers this weekly via `POST /api/cron/scan` (bearer-secret protected).
+- **Scraped carousels (Nuronomics only)**: the scan also reads tracked hashtags' carousel feed and tracked accounts' posts. A carousel has no view count, so it needs `CAROUSEL_LIKES_FLOOR_NURONOMICS` likes (default 500); the best-liked `CAROUSEL_READS_PER_SOURCE` (default 4) per source are read by one Claude vision call each, which keeps only hifz tips, methods, stories and reminders and returns the slide text. A match enters as a carousel with that text as its source script. The scan log shows `carousels: N new, N under the likes floor, N not hifz`.
 - **Transcript**: auto-pulled on add/qualify; failures flagged; inline paste + "Re-pull from Apify".
 - **Adaptation**: manual "Run adaptation" → source breakdown + minimally-edited compliant script + red-line flag. The prompt lives in [`lib/prompt.ts`](lib/prompt.ts) (written fresh, enforces the full 9-item red-line list; minimal edits, **no** Cyrus-voice rewrite).
 - **Review**: inline-edit transcript & script, **Approve**, **Copy script**, **Archive**.

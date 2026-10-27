@@ -35,13 +35,16 @@ import { getScanLimits } from "./scanSettings";
 import {
   scanAccount,
   scanHashtag,
+  scanHashtagCarousels,
+  scanAccountCarousels,
   searchReels,
   fetchReel,
   fetchTranscript,
   captionBody,
   type ScrapedReel,
+  type ScrapedCarousel,
 } from "./treg";
-import { runAdaptation, runCarouselAdaptation, classifyFormat, runPublishPack } from "./claude";
+import { runAdaptation, runCarouselAdaptation, classifyFormat, readHifzCarousel, runPublishPack } from "./claude";
 import type { CoverCandidate } from "./publishPrompt";
 import { generateVoiceoverWithTimestamps } from "./elevenlabs";
 import {
@@ -57,7 +60,7 @@ import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } f
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import { buildPunchSchedule, punchInFilter } from "./punchIn";
 import { POST_PLATFORMS, type PostPlatform } from "./types";
-import type { Brand, Hook, Reel, RedLineFlag, PublishPack, TrackedAccount, TextChannel } from "./types";
+import type { Brand, Hook, Reel, RedLineFlag, PublishPack, TrackedAccount, TextChannel, ReelSource } from "./types";
 import { TEXT_CHANNELS } from "./types";
 
 // Returns the reel's slug, minting it if it doesn't have one yet. Minting
@@ -1111,6 +1114,8 @@ interface AccountQueue {
   candidates: ScrapedReel[];
   cursor: number;
   found: number;
+  // Carousel pass result for the scan log (Nuronomics accounts).
+  note?: string;
 }
 
 // Tracked-account scan: cheap per-account sweep, ranked by views (no floor —
@@ -1129,6 +1134,53 @@ interface AccountQueue {
 // ranked list runs dry. Because each account's candidate list already
 // excludes what's on record, the next scan run naturally resumes further
 // down each account's ranking — no separate cursor needs to be persisted.
+// Scraped carousels (Nuronomics). No view count exists for a carousel, so a
+// likes floor stands in; only the best-liked few per source are read, one paid
+// vision call each, which both filters for hifz and reads the slide text. A
+// match enters as a carousel with that text as its source script, already
+// "transcribed" (there is no speech to pull). A carousel Claude cannot read is
+// skipped, never retried.
+async function saveCarousels(
+  brand: Brand,
+  scraped: ScrapedCarousel[],
+  origin: { account_id?: number; hashtag_id?: number; source: ReelSource }
+): Promise<{ found: number; belowFloor: number; notHifz: number }> {
+  const candidates = scraped.filter((c) => (c.likes ?? 0) >= config.carouselLikesFloorNuronomics);
+  let found = 0;
+  let notHifz = 0;
+  const fresh: ScrapedCarousel[] = [];
+  for (const c of candidates.sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0))) {
+    if (await findByShortcode(c.shortcode)) continue; // already on record
+    fresh.push(c);
+  }
+  for (const c of fresh.slice(0, config.carouselReadsPerSource)) {
+    try {
+      const read = await readHifzCarousel(c.slideUrls, c.caption);
+      if (!read.matches || !read.text.trim()) {
+        notHifz += 1;
+        continue;
+      }
+      await insertReel({
+        brand,
+        ...origin,
+        url: c.url,
+        shortcode: c.shortcode,
+        source: origin.source,
+        kind: "carousel",
+        transcript: read.text,
+        transcript_status: "success",
+        thumbnail_url: c.thumbnailUrl,
+        source_caption: c.caption,
+        source_hashtags: c.hashtags,
+      });
+      found += 1;
+    } catch {
+      notHifz += 1;
+    }
+  }
+  return { found, belowFloor: scraped.length - candidates.length, notHifz };
+}
+
 async function scanTrackedAccounts(): Promise<{ count: number; newReels: number; errors: number }> {
   const accounts = (await listAccounts()).filter((a) => a.active === 1);
   const limits = await getScanLimits();
@@ -1191,13 +1243,28 @@ async function scanTrackedAccounts(): Promise<{ count: number; newReels: number;
     }
   }
 
+  // Carousels (Nuronomics accounts): a separate feed from the reels above.
+  for (const q of queues.filter((q) => q.account.brand === "nuronomics")) {
+    try {
+      const c = await saveCarousels(q.account.brand, await scanAccountCarousels(q.account.handle), {
+        account_id: q.account.id,
+        source: "weekly_scan",
+      });
+      q.found += c.found;
+      totalNew += c.found;
+      q.note = `; carousels: ${c.found} new, ${c.belowFloor} under the likes floor, ${c.notHifz} not hifz`;
+    } catch (err) {
+      q.note = `; carousels failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   for (const q of queues) {
     await markScanned(q.account.id, q.found);
     await logScan(
       q.account.id,
       q.account.handle,
       "ok",
-      `${q.found} new (top-viewed)`,
+      `${q.found} new (top-viewed)${q.note ?? ""}`,
       q.found
     );
   }
@@ -1292,14 +1359,30 @@ async function scanTrackedHashtags(): Promise<{ count: number; newReels: number;
         }
       }
 
-      await markHashtagScanned(hashtag.id, foundForHashtag);
-      newReels += foundForHashtag;
+      // Carousels (Nuronomics hashtags): a separate feed, its own floor.
+      let carouselsFound = 0;
+      let carouselNote = "";
+      if (hashtag.brand === "nuronomics" && !isKeyword) {
+        try {
+          const c = await saveCarousels(hashtag.brand, await scanHashtagCarousels(hashtag.tag), {
+            hashtag_id: hashtag.id,
+            source: "hashtag_scan",
+          });
+          carouselsFound = c.found;
+          carouselNote = `; carousels: ${c.found} new, ${c.belowFloor} under the likes floor, ${c.notHifz} not hifz`;
+        } catch (err) {
+          carouselNote = `; carousels failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      await markHashtagScanned(hashtag.id, foundForHashtag + carouselsFound);
+      newReels += foundForHashtag + carouselsFound;
       await logScan(
         null,
         isKeyword ? `"${hashtag.tag}"` : `#${hashtag.tag}`,
         "ok",
-        `${qualifying.length} qualifying, ${skippedFormat} wrong format, ${skippedViews} under the view floor, ${foundForHashtag} new`,
-        foundForHashtag
+        `${qualifying.length} qualifying, ${skippedFormat} wrong format, ${skippedViews} under the view floor, ${foundForHashtag} new${carouselNote}`,
+        foundForHashtag + carouselsFound
       );
     } catch (err) {
       errors += 1;

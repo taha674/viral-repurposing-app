@@ -197,6 +197,55 @@ export function mapRow(raw: Row): ScrapedReel | null {
   };
 }
 
+// --- carousels ----------------------------------------------------------------
+
+export interface ScrapedCarousel {
+  url: string;
+  shortcode: string;
+  likes: number | null;
+  caption: string | null;
+  hashtags: string[];
+  ownerUsername: string | null;
+  thumbnailUrl: string | null;
+  // The still slides in order (a video slide is dropped).
+  slideUrls: string[];
+}
+
+// tikhub gives a post's pictures as a list of renditions or as {items: [...]}.
+function firstImageUrl(v: unknown): string | null {
+  return str(first(Array.isArray(v) ? v : obj(v)?.items)?.url);
+}
+
+// A carousel as tikhub's feeds shape it: slides under `carousel_media` (an
+// account's posts) or `resources` (a hashtag feed), caption as text or {text}.
+// Null for anything that is not a carousel or has no still slide.
+export function mapCarousel(raw: Row): ScrapedCarousel | null {
+  if (raw.media_type !== 8 && raw.product_type !== "carousel_container") return null;
+  const shortcode = str(raw.code) ?? str(raw.shortcode);
+  if (!shortcode) return null;
+  const slides = rowsOf(raw.carousel_media).length ? rowsOf(raw.carousel_media) : rowsOf(raw.resources);
+  const slideUrls = slides
+    // Still slides carry `video_versions: []`; only a non-empty list is a video.
+    .filter((s) => s.media_type !== 2 && !rowsOf(s.video_versions).length)
+    .map((s) => firstImageUrl(s.image_versions))
+    .filter((u): u is string => !!u);
+  if (!slideUrls.length) return null;
+  const caption = str(raw.caption_text) ?? str(obj(raw.caption)?.text) ?? str(raw.caption);
+  return {
+    url: `https://www.instagram.com/p/${shortcode}/`,
+    shortcode,
+    likes: firstNum(raw.like_count),
+    caption,
+    hashtags: parseHashtags(caption),
+    ownerUsername: str(obj(raw.user)?.username) ?? str(obj(raw.owner)?.username),
+    thumbnailUrl: str(raw.thumbnail_url) ?? slideUrls[0],
+    slideUrls,
+  };
+}
+
+const carouselsIn = (res: Row): ScrapedCarousel[] =>
+  rowsOf(obj(obj(res.data)?.data)?.items).map(mapCarousel).filter((c): c is ScrapedCarousel => c !== null);
+
 // Hashtag feeds mix photos, carousels and reels; keep the reels.
 function isReel(raw: Row): boolean {
   const r = unwrap(raw);
@@ -224,6 +273,21 @@ export async function scanAccount(handle: string, limit: number): Promise<Scrape
 export async function scanHashtag(tag: string): Promise<ScrapedReel[]> {
   const { output } = await routed("treg.instagram.hashtag.posts", { hashtag: tag });
   return mapAll(rowsOf(output.posts).filter(isReel));
+}
+
+// Carousels under a hashtag. The routed hashtag call above comes back
+// reels-only, so this reads tikhub's feed directly, where carousels ride along
+// with the reels (~$0.002 a page).
+export async function scanHashtagCarousels(tag: string): Promise<ScrapedCarousel[]> {
+  return carouselsIn(await tregCall("tikhub.x.instagram-v2-fetch-hashtag-posts", { query: { keyword: tag } }));
+}
+
+// An account's carousels. The routed user-posts call can be served by a
+// provider that returns bare post codes, so this reads tikhub's by username.
+export async function scanAccountCarousels(handle: string): Promise<ScrapedCarousel[]> {
+  return carouselsIn(
+    await tregCall("tikhub.x.instagram-v2-fetch-user-posts", { query: { username: handle.replace(/^@/, "") } })
+  );
 }
 
 // Reels matching a keyword (a "keyword" discovery source). Instagram's reel
