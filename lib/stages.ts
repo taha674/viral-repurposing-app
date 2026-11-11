@@ -119,6 +119,12 @@ export function backTargetStatus(
     if (stage === "pending") return null;
     if (stage === "subtitled") return "pending_approval";
   }
+  // Lecture reels skip Script and Audio: Video goes back to Adaptation, and
+  // Adaptation is where they start.
+  if (reel.kind === "lecture") {
+    if (stage === "adaptation") return null;
+    if (stage === "video") return "adapted";
+  }
   if (reel.kind === "carousel") {
     if (stage === "slides") return "adapted";
     if (stage === "subtitled") return "slides";

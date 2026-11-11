@@ -26,7 +26,8 @@ export default function ReelCard({
   onReject?: () => void;
   busy: boolean;
 }) {
-  const title = reel.slug ?? reel.shortcode ?? (reel.url.slice(0, 32) || `Reel ${reel.id}`);
+  const lecture = reel.lecture;
+  const title = lecture?.hook_text ?? reel.slug ?? reel.shortcode ?? (reel.url.slice(0, 32) || `Reel ${reel.id}`);
   const excerpt =
     stage === "scraped" || stage === "script"
       ? reel.transcript_excerpt
@@ -48,10 +49,24 @@ export default function ReelCard({
         <div className={styles.cardTitle}>{title}</div>
       </div>
       <div className={styles.cardMeta}>
-        <span>{reel.views?.toLocaleString() ?? "—"} views</span>
-        <span>·</span>
-        <span>{reel.source}</span>
-        {reel.kind !== "reel" && <span className="badge">{reel.kind}</span>}
+        {lecture ? (
+          <>
+            <span className="badge blue">Lecture reel</span>
+            <span>{lecture.speaker}</span>
+            <span>·</span>
+            <span>{lecture.language}</span>
+            {lecture.queue_order !== null && <span className="badge">#{lecture.queue_order} in queue</span>}
+            {lecture.role === "alt" && <span className="badge">alt</span>}
+            {lecture.score !== null && <span>{lecture.score}/10</span>}
+          </>
+        ) : (
+          <>
+            <span>{reel.views?.toLocaleString() ?? "—"} views</span>
+            <span>·</span>
+            <span>{reel.source}</span>
+          </>
+        )}
+        {reel.kind !== "reel" && reel.kind !== "lecture" && <span className="badge">{reel.kind}</span>}
         {reel.hook && <span className="badge">hook {reel.hook}</span>}
         {reel.post_links.map((l) => (
           <span key={l.platform} className="badge green">

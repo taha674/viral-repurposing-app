@@ -16,7 +16,24 @@ export const HOOKS: Hook[] = ["A", "B", "C"];
 // What a board item is (2026-10-18). Reels are the original pipeline;
 // stories and text posts start in pending_approval and need approve_item;
 // carousels follow the script rail into slides.
-export type ItemKind = "reel" | "carousel" | "story" | "text";
+export type ItemKind = "reel" | "carousel" | "story" | "text" | "lecture";
+// A lecture reel (2026-11-11): a scholar's own clip, subtitled, from the Hifdh
+// lecture shortlist. No adaptation (his words stay his), no voiceover: approval
+// goes straight to Video, where the rendered reel is uploaded and stripped.
+export interface LectureInfo {
+  clip_id: string; // the clip's id in the lecture shortlist, unique on the board
+  speaker: string;
+  language: string; // of his speech: "Arabic", "English"
+  hook_text: string; // the opening question, set in the reel
+  role: "lead" | "alt"; // alt: a second voice on an idea another clip leads
+  score: number | null; // shortlist score out of 10
+  idea: string | null; // shortlist idea tag
+  queue_order: number | null; // build order among the leads, 1 first
+  source_start: number | null; // seconds in the source video
+  source_end: number | null;
+  needs_review: string | null; // hadith, ayat and verses to check
+  arabic_check: string | null; // lines an Arabic reader should check
+}
 // Where a text post goes out.
 export type TextChannel = "whatsapp_channel" | "whatsapp_community" | "email" | "prelaunch";
 export const TEXT_CHANNELS: TextChannel[] = ["whatsapp_channel", "whatsapp_community", "email", "prelaunch"];
@@ -213,6 +230,8 @@ export interface Reel {
   // straight to Video and the upload is stripped, not burned.
   voiceless: boolean;
   kind: ItemKind;
+  // Lecture reels only.
+  lecture: LectureInfo | null;
   // Carousels only: the adapted slides, and the uploaded, stripped PNGs in order.
   slides: { headline: string; body: string }[] | null;
   slide_paths: string[] | null;

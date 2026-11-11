@@ -26,6 +26,7 @@ import {
   clearSourceVideo,
   setSlug,
   findBySlug,
+  findLecture,
   advanceStatus,
   extractShortcode,
   parseAnalysis,
@@ -60,7 +61,7 @@ import { purgeReelFiles, deleteFileIfExists, outputDirSizeBytes, formatBytes } f
 import { alignmentToWordTimings, layoutLines, linesToAss, captionFontSize } from "./captions";
 import { buildPunchSchedule, punchInFilter } from "./punchIn";
 import { POST_PLATFORMS, type PostPlatform } from "./types";
-import type { Brand, Hook, Reel, RedLineFlag, PublishPack, TrackedAccount, TextChannel, ReelSource } from "./types";
+import type { Brand, Hook, LectureInfo, Reel, RedLineFlag, PublishPack, TrackedAccount, TextChannel, ReelSource } from "./types";
 import { TEXT_CHANNELS } from "./types";
 
 // Returns the reel's slug, minting it if it doesn't have one yet. Minting
@@ -105,7 +106,9 @@ export async function acceptReel(reelId: number): Promise<Reel> {
     throw new Error("Reel has already been accepted (or moved further along).");
   }
   await ensureSlug(reel);
-  await advanceStatus(reelId, "accepted");
+  // A lecture reel keeps the scholar's own words: nothing to adapt, so it
+  // skips Script and waits in Adaptation for the operator's approval.
+  await advanceStatus(reelId, reel.kind === "lecture" ? "adapted" : "accepted");
   return (await getReel(reelId))!;
 }
 
@@ -134,7 +137,7 @@ export async function restoreReel(reelId: number): Promise<Reel> {
     // (an explicit, manually triggered paid call) and redoes the video.
     // Files are gone, so each kind restarts at the step that remakes them.
     const target =
-      reel.kind === "story" || reel.kind === "text" ? "pending_approval" : reel.kind === "carousel" ? "slides" : "approved";
+      reel.kind === "story" || reel.kind === "text" ? "pending_approval" : reel.kind === "carousel" ? "slides" : reel.kind === "lecture" ? "video" : "approved";
     await advanceStatus(reelId, target);
   } else {
     throw new Error("Reel is not in the Rejected or Done tray.");
@@ -307,6 +310,9 @@ export async function adaptReel(reelId: number): Promise<Reel> {
 
   // Stories and text posts are approved as written (approve_item); adapting
   // one would route it into the reel pipeline around that gate.
+  if (reel.kind === "lecture") {
+    throw new Error("A lecture reel keeps the scholar's own words: it is approved as subtitled, never adapted.");
+  }
   if (reel.kind !== "reel" && reel.kind !== "carousel") {
     throw new Error(`A ${reel.kind} is not adapted; it goes through approve_item.`);
   }
@@ -995,6 +1001,43 @@ export async function addOriginal(input: {
   return acceptReel(reel.id);
 }
 
+// A lecture reel from the Hifdh lecture shortlist (2026-11-11). His subtitles
+// are both the transcript and the "adapted" script: there is no adaptation.
+// A lead clip enters at Adaptation, awaiting approval; an alt waits in
+// Scraped for the operator to accept or reject. Adding the same clip twice
+// returns the existing item, so an import can be re-run.
+export async function addLecture(input: {
+  brand: Brand;
+  lecture: LectureInfo;
+  source_url: string;
+  subtitles: string;
+  // Hadith, ayat or quoted verses on screen: approval then needs the
+  // operator's quoted reply, as for any needs_review script.
+  quranic_text: boolean;
+}): Promise<Reel> {
+  const { lecture } = input;
+  if (!lecture.clip_id.trim()) throw new Error("A lecture reel needs its clip id.");
+  if (!input.subtitles.trim()) throw new Error("A lecture reel needs its subtitles.");
+  const existing = await findLecture(lecture.clip_id);
+  if (existing) return existing;
+  const review = input.quranic_text || Boolean(lecture.needs_review?.trim());
+  const reel = await insertReel({
+    brand: input.brand,
+    url: input.source_url,
+    shortcode: null,
+    source: "original",
+    transcript: input.subtitles.trim(),
+    transcript_status: "success",
+    adapted_script: input.subtitles.trim(),
+    kind: "lecture",
+    voiceless: true,
+    lecture,
+    red_line_flag: review ? "needs_review" : "none",
+    red_line_reason: review ? `Lecture reel: check before approving. ${lecture.needs_review ?? "Qur'anic text on screen."}`.trim() : null,
+  });
+  return lecture.role === "alt" ? reel : acceptReel(reel.id);
+}
+
 export async function addManualReel(
   url: string,
   force: boolean,
@@ -1047,6 +1090,7 @@ export async function addManualReel(
         hook: null,
         voiceless: false,
         kind: "reel",
+        lecture: null,
         text_channel: null,
         slides: null,
         slide_paths: null,

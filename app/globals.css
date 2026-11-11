@@ -194,6 +194,10 @@ th {
   color: var(--red);
   border-color: var(--red);
 }
+.badge.blue {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 
 .error {
   color: var(--red);

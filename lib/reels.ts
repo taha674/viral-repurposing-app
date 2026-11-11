@@ -1,6 +1,7 @@
 import { getPool } from "./db";
 import { HOOKS } from "./types";
 import type {
+  LectureInfo,
   PostLink,
   ItemKind,
   TextChannel,
@@ -58,7 +59,7 @@ const SUMMARY_COLUMNS = `
   voiceover_status, voiceover_path, voiceover_error,
   captions_status, captions_video_path, captions_error,
   source_hashtags, publish_pack_status, publish_pack_error,
-  source_video_path, slug, status, previous_status, thumbnail_url, hook, voiceless, kind, text_channel, slide_paths,
+  source_video_path, slug, status, previous_status, thumbnail_url, hook, voiceless, kind, lecture, text_channel, slide_paths,
   planned_post_at, ${POST_LINKS_JSON},
   created_at, updated_at,
   (transcript IS NOT NULL) AS has_transcript,
@@ -74,6 +75,12 @@ export async function listReelSummaries(brand?: Brand): Promise<ReelSummary[]> {
     [brand ?? null]
   );
   return rows;
+}
+
+export async function findLecture(clipId: string): Promise<Reel | undefined> {
+  const pool = await getPool();
+  const { rows } = await pool.query<Reel>(`SELECT *, ${POST_LINKS_JSON} FROM reels WHERE lecture->>'clip_id' = $1`, [clipId]);
+  return rows[0];
 }
 
 export async function getReel(id: number): Promise<Reel | undefined> {
@@ -128,6 +135,9 @@ export interface NewReel {
   kind?: ItemKind;
   text_channel?: TextChannel | null;
   adapted_script?: string | null;
+  lecture?: LectureInfo | null;
+  red_line_flag?: RedLineFlag;
+  red_line_reason?: string | null;
 }
 
 // Insert a reel. Returns the existing row if the shortcode is already present
@@ -143,8 +153,8 @@ export async function insertReel(r: NewReel): Promise<Reel> {
     `INSERT INTO reels
       (account_id, hashtag_id, url, shortcode, views, source, transcript, transcript_status,
        thumbnail_url, source_caption, source_hashtags, brand, hook, voiceless,
-       kind, text_channel, adapted_script)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       kind, text_channel, adapted_script, lecture, red_line_flag, red_line_reason)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
      RETURNING *`,
     [
       r.account_id ?? null,
@@ -167,6 +177,9 @@ export async function insertReel(r: NewReel): Promise<Reel> {
       r.kind ?? "reel",
       r.text_channel ?? null,
       r.adapted_script ?? null,
+      r.lecture ? JSON.stringify(r.lecture) : null,
+      r.red_line_flag ?? "none",
+      r.red_line_reason ?? null,
     ]
   );
   const id = rows[0].id;
@@ -415,11 +428,13 @@ export async function setStatus(id: number, status: ReelStatus): Promise<void> {
       [status, id]
     );
   } else {
-    // An approved carousel goes to Slides (waiting for its images), not to
-    // Audio: every approval path (web, MCP, bot) passes through here.
+    // An approved carousel goes to Slides (waiting for its images) and an
+    // approved lecture reel to Video (it has no voiceover), not to Audio:
+    // every approval path (web, MCP, bot) passes through here.
     await pool.query(
       `UPDATE reels
-         SET status = CASE WHEN $1 = 'approved' AND kind = 'carousel' THEN 'slides' ELSE $1 END,
+         SET status = CASE WHEN $1 = 'approved' AND kind = 'carousel' THEN 'slides'
+                           WHEN $1 = 'approved' AND kind = 'lecture' THEN 'video' ELSE $1 END,
              red_line_flag = 'none', red_line_reason = NULL
        WHERE id = $2`,
       [status, id]

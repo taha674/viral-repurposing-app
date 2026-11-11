@@ -15,6 +15,7 @@ import {
   acceptReel,
   addManualReel,
   addOriginal,
+  addLecture,
   addStory,
   addCarousel,
   addTextPost,
@@ -114,6 +115,10 @@ function allowedActions(reel: Reel): string[] {
       a.push("edit_reel", "reject_reel", "move_back");
       break;
     case "adapted":
+      if (reel.kind === "lecture") {
+        a.push("approve_script", "edit_reel", "generate_publish_pack", "reject_reel");
+        break;
+      }
       a.push("approve_script", "adapt_reel", "edit_reel", "generate_publish_pack", "reject_reel", "move_back");
       break;
     case "approved":
@@ -202,6 +207,12 @@ function readyPost(reel: Reel) {
   };
 }
 
+// A lecture reel's identity in list views: which clip, who speaks, its hook.
+const lectureBrief = (r: { lecture: Reel["lecture"] }) =>
+  r.lecture
+    ? { lecture: { clip_id: r.lecture.clip_id, speaker: r.lecture.speaker, language: r.lecture.language, hook_text: r.lecture.hook_text, role: r.lecture.role, queue_order: r.lecture.queue_order, score: r.lecture.score } }
+    : {};
+
 const excerpt = (s: string | null, n = 240) => (s && s.length > n ? s.slice(0, n) + "…" : s);
 
 // --- registration --------------------------------------------------------
@@ -226,6 +237,8 @@ export function registerTools(server: McpServer): void {
         views: r.views,
         slug: r.slug,
         hook: r.hook,
+        kind: r.kind,
+        ...lectureBrief(r),
         planned_post_at: r.planned_post_at,
       });
       for (const r of reels) counts[stageOf(r)] = (counts[stageOf(r)] ?? 0) + 1;
@@ -251,14 +264,16 @@ export function registerTools(server: McpServer): void {
         "List reels (trimmed: no transcript/analysis). Optionally filter by kanban stage. Rejected and archived reels are omitted unless include_trays is true. Use get_reel for the full row.",
       inputSchema: {
         stage: z.enum(["scraped", "script", "adaptation", "audio", "video", "subtitled", "scheduled", "posted", "rejected", "done"]).optional(),
+        kind: z.enum(["reel", "carousel", "story", "text", "lecture"]).optional().describe("Only items of this kind, e.g. lecture for the lecture reels"),
         include_trays: z.boolean().optional(),
         brand: brandArg,
         limit: z.number().int().min(1).max(200).optional(),
       },
     },
-    safe(async ({ stage, include_trays, brand, limit }) => {
+    safe(async ({ stage, kind, include_trays, brand, limit }) => {
       let reels = await listReelSummaries(brand);
       reels = reels.filter((r) => {
+        if (kind && r.kind !== kind) return false;
         const s = stageOf(r);
         if (stage) return s === stage;
         return include_trays ? true : s !== "rejected" && s !== "done";
@@ -266,6 +281,8 @@ export function registerTools(server: McpServer): void {
       return reels.slice(0, limit ?? 100).map((r) => ({
         id: r.id,
         brand: r.brand,
+        kind: r.kind,
+        ...lectureBrief(r),
         stage: stageOf(r),
         status: r.status,
         red_line_flag: r.red_line_flag,
@@ -446,6 +463,53 @@ export function registerTools(server: McpServer): void {
       presentReel(
         await withAudit("add_original", "write", { args: { brand, hook, voiceless, script_chars: script.length }, rationale }, () =>
           addOriginal({ brand: parseBrand(brand), script, hook: (hook as Hook | undefined) ?? null, voiceless })
+        )
+      )
+    )
+  );
+
+  server.registerTool(
+    "add_lecture",
+    {
+      description:
+        "Add a LECTURE REEL: a scholar's own clip from the Hifdh lecture shortlist, with his subtitles (original language over English). " +
+        "No adaptation and no voiceover: a lead clip enters at Adaptation awaiting approve_script (same red-line rails), an alt waits in Scraped for accept_reel. " +
+        "Once approved it goes straight to Video, where the rendered reel is uploaded and metadata-stripped. Free. Re-adding a clip_id returns the existing item.",
+      inputSchema: {
+        brand: brandArg,
+        clip_id: z.string().min(1).describe("The clip's shortlist id, e.g. hindi-give-it-all"),
+        speaker: z.string().min(1),
+        language: z.string().min(1).describe("Language he speaks: Arabic, English"),
+        hook_text: z.string().min(1).describe("The reel's opening question"),
+        source_url: z.string().url().describe("His video, at the clip's start: the credit link"),
+        subtitles: z.string().min(1).describe("The timed subtitles, one line per phrase: original over English"),
+        role: z.enum(["lead", "alt"]),
+        score: z.number().int().min(0).max(10).optional(),
+        idea: z.string().optional(),
+        queue_order: z.number().int().positive().optional().describe("Build order among the leads, 1 first"),
+        source_start: z.number().optional(),
+        source_end: z.number().optional(),
+        needs_review: z.string().optional().describe("Hadith, ayat and quoted verses to check"),
+        arabic_check: z.string().optional().describe("Lines an Arabic reader should check"),
+        quranic_text: z.boolean().describe("REQUIRED. True if an ayah or hadith appears on screen or in the subtitles; keeps approval behind the operator's quoted reply. When unsure, true."),
+        rationale: z.string().min(1),
+      },
+    },
+    safe(async ({ brand, subtitles, source_url, quranic_text, rationale, ...l }) =>
+      presentReel(
+        await withAudit("add_lecture", "write", { args: { brand, clip_id: l.clip_id, role: l.role, quranic_text }, rationale }, () =>
+          addLecture({
+            brand: parseBrand(brand),
+            source_url,
+            subtitles,
+            quranic_text,
+            lecture: {
+              clip_id: l.clip_id, speaker: l.speaker, language: l.language, hook_text: l.hook_text, role: l.role,
+              score: l.score ?? null, idea: l.idea ?? null, queue_order: l.queue_order ?? null,
+              source_start: l.source_start ?? null, source_end: l.source_end ?? null,
+              needs_review: l.needs_review ?? null, arabic_check: l.arabic_check ?? null,
+            },
+          })
         )
       )
     )
@@ -815,7 +879,7 @@ export function registerTools(server: McpServer): void {
     "approve_script",
     {
       description:
-        "APPROVAL GATE: Adaptation → Audio. Only valid while status is 'adapted'. Read the adapted script and red-line flag first, and give a `rationale`. " +
+        "APPROVAL GATE: Adaptation → Audio (a lecture reel goes straight to Video: it has no voiceover). Only valid while status is 'adapted'. Read the adapted script and red-line flag first, and give a `rationale`. " +
         "red_line_flag 'none': you may approve. " +
         "'needs_review': ASK THE OPERATOR ON TELEGRAM first (show the script and the flag reason); only after they say yes, call with operator_confirmed=true and confirmation_note quoting their reply. " +
         "'rejected': you may NOT approve — tell the operator; they approve in the web app or Instagram bot. " +
@@ -836,7 +900,7 @@ export function registerTools(server: McpServer): void {
         { reelId: id, args: { id, operator_confirmed: Boolean(operator_confirmed), confirmation_note }, rationale },
         async () => {
           const reel = await mustGet(id);
-          if (reel.kind !== "reel" && reel.kind !== "carousel") {
+          if (reel.kind !== "reel" && reel.kind !== "carousel" && reel.kind !== "lecture") {
             throw new Error(`A ${reel.kind} is approved with approve_item.`);
           }
           if (reel.status !== "adapted") {
