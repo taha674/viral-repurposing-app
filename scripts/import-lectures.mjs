@@ -53,7 +53,7 @@ for (const it of items) {
     reel = await call("edit_reel", { id: reel.id, publish_pack, rationale });
   }
   if (posted_links?.length && reel.status === "captioned") {
-    reel = await call("mark_posted", { id: reel.id, links: posted_links, operator_confirmed: true, confirmation_note: posted_note });
+    reel = await call("mark_posted", { id: reel.id, links: posted_links, operator_confirmed: true, confirmation_note: posted_note, rationale });
   }
   console.log(`${++n}/${items.length} ${it.clip_id}: ${reel.status}`);
 }

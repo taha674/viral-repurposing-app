@@ -571,7 +571,8 @@ export async function saveSourceVideo(
 export async function burnCaptions(reelId: number): Promise<Reel> {
   const reel = await getReel(reelId);
   if (!reel) throw new Error(`Reel ${reelId} not found`);
-  if (reel.kind !== "reel") throw new Error(`A ${reel.kind} is not burned.`);
+  // A lecture reel is voiceless: its rendered upload is stripped, not burned.
+  if (reel.kind !== "reel" && reel.kind !== "lecture") throw new Error(`A ${reel.kind} is not burned.`);
   if (reel.status !== "video") {
     throw new Error("Upload the finished video before burning captions.");
   }
