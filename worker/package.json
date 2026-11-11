@@ -1,0 +1,10 @@
+{
+  "name": "lecture-render-worker",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node run.mjs" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "hyperframes": "0.9.5"
+  }
+}
