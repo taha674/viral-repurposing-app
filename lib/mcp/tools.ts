@@ -172,6 +172,12 @@ function presentReel(reel: Reel) {
   };
 }
 
+// A lecture reel's identity in list views: which clip, who speaks, its hook.
+const lectureBrief = (r: { lecture: Reel["lecture"] }) =>
+  r.lecture
+    ? { lecture: { clip_id: r.lecture.clip_id, speaker: r.lecture.speaker, language: r.lecture.language, hook_text: r.lecture.hook_text, role: r.lecture.role, queue_order: r.lecture.queue_order, score: r.lecture.score } }
+    : {};
+
 // What Hermes hands the operator for one ready post. A missing publish pack
 // is reported, not invented.
 function readyPost(reel: Reel) {
@@ -186,6 +192,8 @@ function readyPost(reel: Reel) {
     id: reel.id,
     brand: reel.brand,
     kind: reel.kind,
+    // A lecture reel: whose clip, and the source link its caption credits.
+    ...(reel.kind === "lecture" ? { ...lectureBrief(reel), source_url: reel.url } : {}),
     // A story's description of what it shows.
     ...(reel.kind === "story" ? { text: reel.transcript } : {}),
     hook: reel.hook,
@@ -206,12 +214,6 @@ function readyPost(reel: Reel) {
     missing: pack || reel.kind === "story" ? [] : ["publish_pack"],
   };
 }
-
-// A lecture reel's identity in list views: which clip, who speaks, its hook.
-const lectureBrief = (r: { lecture: Reel["lecture"] }) =>
-  r.lecture
-    ? { lecture: { clip_id: r.lecture.clip_id, speaker: r.lecture.speaker, language: r.lecture.language, hook_text: r.lecture.hook_text, role: r.lecture.role, queue_order: r.lecture.queue_order, score: r.lecture.score } }
-    : {};
 
 const excerpt = (s: string | null, n = 240) => (s && s.length > n ? s.slice(0, n) + "…" : s);
 

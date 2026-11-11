@@ -308,11 +308,11 @@ export async function adaptReel(reelId: number): Promise<Reel> {
     );
   }
 
-  // Stories and text posts are approved as written (approve_item); adapting
-  // one would route it into the reel pipeline around that gate.
   if (reel.kind === "lecture") {
     throw new Error("A lecture reel keeps the scholar's own words: it is approved as subtitled, never adapted.");
   }
+  // Stories and text posts are approved as written (approve_item); adapting
+  // one would route it into the reel pipeline around that gate.
   if (reel.kind !== "reel" && reel.kind !== "carousel") {
     throw new Error(`A ${reel.kind} is not adapted; it goes through approve_item.`);
   }
@@ -1021,7 +1021,9 @@ export async function addLecture(input: {
   if (!input.subtitles.trim()) throw new Error("A lecture reel needs its subtitles.");
   const existing = await findLecture(lecture.clip_id);
   if (existing) return existing;
-  const review = input.quranic_text || Boolean(lecture.needs_review?.trim());
+  // Hadith and ayat on screen, or a translation an Arabic reader should
+  // check: either keeps approval behind the operator's quoted reply.
+  const review = input.quranic_text || Boolean(lecture.needs_review?.trim()) || Boolean(lecture.arabic_check?.trim());
   const reel = await insertReel({
     brand: input.brand,
     url: input.source_url,
@@ -1034,7 +1036,11 @@ export async function addLecture(input: {
     voiceless: true,
     lecture,
     red_line_flag: review ? "needs_review" : "none",
-    red_line_reason: review ? `Lecture reel: check before approving. ${lecture.needs_review ?? "Qur'anic text on screen."}`.trim() : null,
+    red_line_reason: review
+      ? ["Lecture reel: check before approving.", lecture.needs_review, lecture.arabic_check && `Arabic reader: ${lecture.arabic_check}`]
+          .filter(Boolean)
+          .join(" ")
+      : null,
   });
   return lecture.role === "alt" ? reel : acceptReel(reel.id);
 }

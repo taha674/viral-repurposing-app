@@ -85,6 +85,9 @@ test("a hadith on screen needs the operator's quote; approval goes straight to V
   const done = await call(mcp, "burn_captions", { id });
   assert.equal(done.ok, true, done.error);
   assert.equal(done.data.status, "captioned");
+  const FFPROBE = require("ffprobe-static").path;
+  const probe = JSON.parse(execFileSync(FFPROBE, ["-v", "quiet", "-print_format", "json", "-show_format", done.data.captions_video_path]));
+  assert.equal(probe.format.tags?.title, undefined);
 
   const posted = await call(mcp, "mark_posted", {
     id,

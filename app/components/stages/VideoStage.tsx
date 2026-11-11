@@ -119,7 +119,9 @@ export default function VideoStage({
     <>
       <h2>Upload the finished video</h2>
       <p className="muted">
-        The HeyGen/Adobe Express export, ready except for subtitles.
+        {reel.kind === "lecture"
+          ? "The rendered lecture reel, subtitles already in it."
+          : "The HeyGen/Adobe Express export, ready except for subtitles."}
       </p>
       <div className="row" style={{ alignItems: "center" }}>
         <input
@@ -137,13 +139,15 @@ export default function VideoStage({
         </p>
       )}
 
-      <h2 style={{ marginTop: 16 }}>Burn subtitles</h2>
+      <h2 style={{ marginTop: 16 }}>{reel.kind === "lecture" || reel.voiceless ? "Strip metadata" : "Burn subtitles"}</h2>
       <p className="muted">
-        Renders the word-synced subtitle track onto the video and strips metadata.
+        {reel.kind === "lecture" || reel.voiceless
+          ? "Strips the upload's metadata and moves it to Finished. No subtitles are burned."
+          : "Renders the word-synced subtitle track onto the video and strips metadata."}
       </p>
       <div className="row">
         <button onClick={burn} disabled={isBurning || !reel.source_video_path}>
-          {isBurning ? `Burning… (${formatElapsed(burnElapsed)})` : "Burn Captions"}
+          {isBurning ? `Working… (${formatElapsed(burnElapsed)})` : reel.kind === "lecture" || reel.voiceless ? "Strip and finish" : "Burn Captions"}
         </button>
       </div>
       {reel.captions_status === "failed" && reel.captions_error && (

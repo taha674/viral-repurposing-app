@@ -24,7 +24,7 @@ async function call(name, args) {
 }
 
 const items = JSON.parse(fs.readFileSync(file, "utf8"));
-const order = (i) => (i.role === "alt" ? -1e6 : i.video ? 1e6 : -(i.queue_order ?? 0));
+const order = (i) => (i.role === "alt" ? -1e6 : i.video ? 1e6 : -(i.queue_order ?? 1e5));
 items.sort((a, b) => order(a) - order(b));
 // built reels last, in file order, so they are the newest cards
 const rationale = "Hifdh lecture shortlist import (Taha, 11 Nov: one central pipeline)";
@@ -33,6 +33,8 @@ for (const it of items) {
   const { video, approved_note, posted_note, posted_links, caption, hashtags, ...lecture } = it;
   const strip = Object.fromEntries(Object.entries(lecture).filter(([, v]) => v !== null && v !== undefined));
   let reel = await call("add_lecture", { brand: "nuronomics", ...strip, rationale });
+  if (video && !approved_note?.trim()) throw new Error(`${it.clip_id}: a built reel needs approved_note, the operator's quoted approval`);
+  if (posted_links?.length && !posted_note?.trim()) throw new Error(`${it.clip_id}: posted_links need posted_note, the operator's quoted reply`);
   if (video && reel.status === "adapted") {
     reel = await call("approve_script", { id: reel.id, rationale, operator_confirmed: true, confirmation_note: approved_note });
   }
@@ -48,13 +50,14 @@ for (const it of items) {
     const publish_pack = {
       caption, caption_rationale: "Final caption from POSTS.md, approved by Taha at post time", hashtags, hashtags_rejected: [],
       thumbnail_text: [], hook_mode: "subtitle_only", hook_mode_reason: "The hook is set in the reel", cover_frame_seconds: null,
-      cover_frame_line: null, red_line_flag: "none", red_line_reason: "",
+      cover_frame_line: null, red_line_flag: "needs_review", red_line_reason: "Not run through the red-line filter: Taha approves this caption at post time",
     };
     reel = await call("edit_reel", { id: reel.id, publish_pack, rationale });
   }
   if (posted_links?.length && reel.status === "captioned") {
     reel = await call("mark_posted", { id: reel.id, links: posted_links, operator_confirmed: true, confirmation_note: posted_note, rationale });
   }
-  console.log(`${++n}/${items.length} ${it.clip_id}: ${reel.status}`);
+  const note = video && !posted_links?.length && posted_note ? " (posted: no link yet, so it waits in Finished)" : "";
+  console.log(`${++n}/${items.length} ${it.clip_id}: ${reel.status}${note}`);
 }
 await mcp.close();

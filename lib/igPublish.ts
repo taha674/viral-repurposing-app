@@ -67,7 +67,7 @@ export async function publishToInstagram(reelId: number): Promise<Reel> {
   if (!reel) throw new Error(`Reel ${reelId} not found`);
   if (reel.brand !== "nuronomics") throw new Error("Only Nuronomics posts are published by the app; Cyrus posts stay manual.");
   if (reel.status !== "scheduled") throw new Error(`Item ${reelId} is "${reel.status}", not scheduled.`);
-  if (!["reel", "carousel", "story"].includes(reel.kind)) throw new Error(`A ${reel.kind} is not published to Instagram.`);
+  if (!["reel", "lecture", "carousel", "story"].includes(reel.kind)) throw new Error(`A ${reel.kind} is not published to Instagram.`);
   if (reel.planned_post_at && Date.now() < new Date(reel.planned_post_at).getTime()) {
     throw new Error(`Item ${reelId} is planned for ${reel.planned_post_at}; publish it at or after that time.`);
   }
@@ -82,7 +82,7 @@ export async function publishToInstagram(reelId: number): Promise<Reel> {
   checkPublishAccount(String((await graph("GET", "me", { fields: "username" })).username ?? ""), config.instagramPublishUsername);
 
   let containerId: string;
-  if (reel.kind === "reel") {
+  if (reel.kind === "reel" || reel.kind === "lecture") {
     const pack = reel.publish_pack!;
     const params: Record<string, string> = {
       media_type: "REELS",
