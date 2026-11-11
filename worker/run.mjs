@@ -4,7 +4,8 @@
 //   MCP_URL=https://<board>/api/mcp MCP_API_TOKEN=... node run.mjs            up to RENDER_LIMIT items (default 1)
 //   LECTURE_ID=123 ...                                                          that item only
 //   node run.mjs --local <item.json> <dir>                                       render one lectures.json item, no board
-// Optional: YTDLP_COOKIES (a cookies.txt path) when YouTube asks the server to sign in; HYPERFRAMES (default "npx hyperframes").
+// Optional: YTDLP_COOKIES_TXT (cookies.txt contents) or YTDLP_COOKIES (its path) when YouTube asks the server to sign in;
+// HYPERFRAMES (default "npx hyperframes").
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,6 +17,17 @@ const out = (cmd, args) => execFileSync(cmd, args, { encoding: "utf8" }).trim();
 const ff = (...a) => run("ffmpeg", ["-v", "error", "-y", ...a]);
 const seconds = (f) => Number(out("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", f]));
 
+// YouTube asks a server like Railway's to sign in. YTDLP_COOKIES_TXT holds a cookies.txt export (from a throwaway
+// account) pasted into a Railway variable; it is written to a private temp file. YTDLP_COOKIES is a path, for the Mac.
+let cookieFile;
+function cookies() {
+  if (process.env.YTDLP_COOKIES) return process.env.YTDLP_COOKIES;
+  if (!process.env.YTDLP_COOKIES_TXT) return null;
+  cookieFile ??= path.join(fs.mkdtempSync(path.join(os.tmpdir(), "yt-")), "cookies.txt");
+  fs.writeFileSync(cookieFile, process.env.YTDLP_COOKIES_TXT, { mode: 0o600 });
+  return cookieFile;
+}
+
 // One lecture item -> <dir>/send.mp4. item: {url, hook_text, speaker, language, source_start, source_end, subtitles}
 export function render(item, dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -26,7 +38,7 @@ export function render(item, dir) {
   run("yt-dlp", [
     "-q", "--no-playlist", "--js-runtimes", "node", "-f", "bv*[height<=1080]+ba/b[height<=1080]", "--merge-output-format", "mkv",
     "--retries", "3", "--fragment-retries", "3",
-    ...(process.env.YTDLP_COOKIES ? ["--cookies", process.env.YTDLP_COOKIES] : []),
+    ...(cookies() ? ["--cookies", cookies()] : []),
     "-o", path.join(dir, "src.%(ext)s"), url,
   ]);
   const src = path.join(dir, "src.mkv");
